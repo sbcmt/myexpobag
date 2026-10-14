@@ -25,11 +25,15 @@
   const unitPrice = p => Number.isFinite(p.eventPrice) && p.eventPrice >= 0 && p.eventPrice < p.price ? p.eventPrice : p.price;
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
   const state = { category:'all', cart:{}, order:null, modalOpen:false, previewTheme:null, toastTimer:null };
-  const activeBuild = window.MEB_CURRENT_BUILD || '20261014-recommend-refresh-01';
-  let lastReleaseCheck = Date.now();
+  // The actual bytes fetched at boot are fingerprints, not a manual release file.
+  const currentHashes = window.MEB_ASSET_HASHES || {};
+  const hashSource = window.MEB_DIGEST_TEXT;
+  const currentEtags = window.MEB_ASSET_ETAGS || {};
+  const trackedFiles = window.MEB_ASSET_FILES || ['index.html','styles.css','config.js','qr.js','app.js'];
+  let lastReleaseCheck = 0;
   let releaseCheckBusy = false;
   let pendingReleaseBuild = '';
-  const releaseCheckIntervalMs = 45_000;
+  const releaseCheckIntervalMs = 15_000;
 
   const ensureCart = () => {
     try {
@@ -266,9 +270,9 @@
   document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();submitCheckout(event.target);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});
   window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0,behavior:'instant'});});
-  // GitHub Pages / home-screen launch: check a tiny release file instead of
-  // downloading product images or all app assets in a loop. No Service Worker
-  // caches are registered by this app. Updates roll in when returning to the app.
+  // A Home Screen PWA can retain its old document while in the background.
+  // On focus / visibility / periodic checks, compare actual live files with the
+  // exact ones used at boot. No manual release.json update needed.
   const showReleaseNotice = () => {
     let notice = $('#release-notice');
     if (!notice) {
@@ -276,7 +280,7 @@
       notice.id='release-notice';
       notice.className='release-notice';
       notice.setAttribute('role','status');
-      notice.innerHTML='<span>新しい画面が公開されました</span><button type="button" data-apply-release>更新する</button>';
+      notice.innerHTML='<span>最新の商品・画面が公開されました</span><button type="button" data-apply-release>更新する</button>';
       document.body.appendChild(notice);
     }
     notice.hidden=false;
@@ -284,37 +288,52 @@
   const applyRelease = () => {
     if (!pendingReleaseBuild) return;
     const nextUrl=new URL(location.href);
-    nextUrl.searchParams.set('update',pendingReleaseBuild);
+    // Unique navigation URL prevents WebKit's document/BFCache from
+    // restoring a permanently stale installed-app document.
+    nextUrl.searchParams.set('meb_refresh',Date.now().toString(36));
     window.location.replace(nextUrl.href);
   };
-  const checkRelease = async () => {
-    if (releaseCheckBusy || document.visibilityState==='hidden' || !navigator.onLine) return;
-    if (Date.now()-lastReleaseCheck<releaseCheckIntervalMs) return;
+  const checkRelease = async (force=false) => {
+    if (releaseCheckBusy || document.visibilityState==='hidden' || !navigator.onLine || !hashSource) return;
+    if (!force && Date.now()-lastReleaseCheck<releaseCheckIntervalMs) return;
+    // Even forced foreground checks should not fire dozens of requests rapidly.
+    if (Date.now()-lastReleaseCheck<3000) return;
     lastReleaseCheck=Date.now();
     releaseCheckBusy=true;
     try {
-      const response=await fetch('./release.json?nocache='+Date.now(),{cache:'no-store'});
-      if(!response.ok) return;
-      const release=await response.json();
-      if(typeof release.build!=='string' || !/^[a-zA-Z0-9._-]{1,80}$/.test(release.build)) return;
-      if(release.build!==activeBuild){
-        pendingReleaseBuild=release.build;
-        // Do not discard customer information entered in a modal or an open QR.
+      const results=await Promise.all(trackedFiles.map(async filename=>{
+        const url='./'+filename+'?meb_check='+Date.now();
+        // Most static hosts (including GitHub Pages) return ETag. First check
+        // the small headers, avoiding repeated JS/image data downloads.
+        if(currentEtags[filename]){
+          try{
+            const head=await fetch(url,{method:'HEAD',cache:'no-store'});
+            if(head.ok && head.headers.get('ETag')===currentEtags[filename]){
+              return [filename,currentHashes[filename]];
+            }
+          }catch(_) { /* HEAD unavailable: check exact file contents */ }
+        }
+        const response=await fetch(url,{cache:'no-store'});
+        if (!response.ok) throw new Error('更新確認 '+filename+': '+response.status);
+        return [filename,hashSource(await response.text())];
+      }));
+      if (results.some(([name,hash])=>hash!==currentHashes[name])){
+        pendingReleaseBuild='changed';
+        // Preserve unsent form contents and the provisional checkout QR.
         if(state.modalOpen || state.order || location.hash==='#qr') showReleaseNotice();
         else applyRelease();
       }
     } catch (error) {
-      // A temporary network problem must not interrupt shopping.
-      console.debug('更新チェックをスキップしました',error);
+      console.debug('更新確認ができませんでした',error);
     } finally {releaseCheckBusy=false;}
   };
   document.addEventListener('click', event=>{
     if(event.target.closest('[data-apply-release]')) applyRelease();
   });
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkRelease();});
-  window.addEventListener('pageshow',()=>checkRelease());
-  window.addEventListener('focus',()=>checkRelease());
-  window.addEventListener('online',()=>checkRelease());
-  setInterval(checkRelease,120_000);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkRelease(true);});
+  window.addEventListener('pageshow',()=>checkRelease(true));
+  window.addEventListener('focus',()=>checkRelease(true));
+  window.addEventListener('online',()=>checkRelease(true));
+  setInterval(()=>checkRelease(),90_000);
   ensureCart();render();
 })();

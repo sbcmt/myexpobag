@@ -13,36 +13,83 @@
   <meta name="apple-mobile-web-app-title" content="MY EXPO BAG"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
-  <!-- Always check the current publication on launch. No service-worker asset cache. -->
+  <!-- Network-only service worker: no stale copies of app files are served. -->
   <script>
     (async () => {
-      // Build ID is independent of the displayed app version (always v1.0.1).
-      let build='20261014-recommend-refresh-01';
-      try {
-        const response=await fetch('./release.json?nocache='+Date.now(),{cache:'no-store'});
-        if(response.ok){
-          const release=await response.json();
-          if(typeof release.build==='string' && /^[a-zA-Z0-9._-]{1,80}$/.test(release.build)) build=release.build;
+      'use strict';
+      // Displayed product version stays 1.0.1. Each launch fetches the real live files.
+      // No manual edit to release.json is required to detect an app/config update.
+      const files=['index.html','styles.css','config.js','qr.js','app.js'];
+      const cacheToken=String(Date.now())+'-'+Math.random().toString(36).slice(2,9);
+      const digest=text=>{
+        // Two independent lightweight 32-bit hashes. Only used for change detection.
+        let a=2166136261,b=0x9e3779b9;
+        for(let i=0;i<text.length;i++){
+          const c=text.charCodeAt(i);
+          a=Math.imul(a^c,16777619);
+          b=Math.imul(b^(c+i),2246822519);
         }
-      } catch (_) { /* file:// preview or temporary offline: use bundled build */ }
-      window.MEB_CURRENT_BUILD=build;
-      const style=document.createElement('link');
-      style.rel='stylesheet';
-      style.href='./styles.css?build='+encodeURIComponent(build);
-      document.head.appendChild(style);
-      if(document.readyState==='loading') await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
-      for(const filename of ['config.js','qr.js','app.js']){
-        try {
-          await new Promise((resolve,reject)=>{
-            const script=document.createElement('script');
-            script.src='./'+filename+'?build='+encodeURIComponent(build);
-            script.onload=resolve;script.onerror=()=>reject(new Error(filename));
-            document.body.appendChild(script);
-          });
-        } catch(error){
-          document.getElementById('view').textContent='読み込みに失敗しました。通信環境をご確認のうえ、ページを開き直してください。';
-          break;
+        return (a>>>0).toString(16)+'-'+(b>>>0).toString(16)+'-'+text.length;
+      };
+      const requestFile=async name=>{
+        const url='./'+name+'?meb_fresh='+cacheToken;
+        const response=await fetch(url,{cache:'no-store',redirect:'follow'});
+        if(!response.ok)throw new Error(name+' HTTP '+response.status);
+        return {
+          text:await response.text(),
+          etag:response.headers.get('ETag') || null
+        };
+      };
+      const status=message=>{
+        const target=document.getElementById('view');
+        if(target)target.textContent=message;
+      };
+      // Registration must NOT cache index.html, JS or product data. The worker is
+      // network-only, including for iPhone's standalone Home Screen launch.
+      if(location.protocol==='https:' && 'serviceWorker' in navigator){
+        navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'})
+          .then(reg=>reg.update().catch(()=>{}))
+          .catch(error=>console.warn('更新制御の登録に失敗:',error));
+      }
+      try{
+        const data=Object.create(null);
+        // Capture the actual bytes loaded into this session as an update baseline.
+        const all=await Promise.all(files.map(async name=>{
+          const record=await requestFile(name);
+          return [name,record];
+        }));
+        for(const [name,record] of all)data[name]=record.text;
+        window.MEB_ASSET_HASHES=Object.fromEntries(files.map(name=>[name,digest(data[name])]));
+        window.MEB_ASSET_ETAGS=Object.fromEntries(all.map(([name,record])=>[name,record.etag]));
+        window.MEB_DIGEST_TEXT=digest;
+        window.MEB_ASSET_FILES=files;
+        // Compatibility with current app data version; no longer an update signal.
+        window.MEB_CURRENT_BUILD='1.0.1';
+        const style=document.createElement('style');
+        style.setAttribute('data-meb-current-style','');
+        style.textContent=data['styles.css'];
+        document.head.appendChild(style);
+        if(document.readyState==='loading'){
+          await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
         }
+        for(const filename of ['config.js','qr.js','app.js']){
+          const url=URL.createObjectURL(new Blob([data[filename]],{type:'text/javascript'}));
+          try{
+            await new Promise((resolve,reject)=>{
+              const script=document.createElement('script');
+              script.src=url;
+              script.onload=resolve;
+              script.onerror=()=>reject(new Error(filename));
+              document.body.appendChild(script);
+            });
+          }finally{URL.revokeObjectURL(url);}
+        }
+      }catch(error){
+        console.error('アプリの最新データ取得に失敗:',error);
+        if(document.readyState==='loading'){
+          await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
+        }
+        status('通信ができないため、最新の商品情報を取得できませんでした。オンラインでページを開き直してください。');
       }
     })();
   </script>
