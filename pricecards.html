@@ -20,18 +20,18 @@
   .qr-area{width:31mm;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3mm 2mm;gap:1mm}
   .qr-area img{width:25.5mm;height:25.5mm;image-rendering:pixelated}
   .scan-note{font-size:6pt;color:#65767c;white-space:nowrap;text-align:center}
-  .information{min-width:0;flex:1;padding:3.5mm 3mm 2.5mm 0;display:flex;flex-direction:column;gap:1mm}
+  .information{min-width:0;flex:1;padding:3.5mm 3mm 2.8mm 1mm;display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:flex-start;gap:1.2mm}
   .brand{font-size:7.4pt;font-weight:800;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .item{font-size:10pt;font-weight:800;line-height:1.18;word-break:break-all;max-height:23mm;overflow:hidden}
-  .meta{font-size:7pt;color:#536470;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .price{margin-top:auto;min-height:12mm;display:flex;flex-direction:column;justify-content:end;align-items:flex-start;gap:.5mm}
-  .normal{font-size:7pt;color:#6c7a80}
+  .item{font-size:12.5pt;font-weight:800;line-height:1.22;word-break:break-word;max-height:24mm;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:16mm}
+  .meta{font-size:7.4pt;color:#536470;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .price{margin-top:0;min-height:auto;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:.5mm}
+  .normal{font-size:7pt;color:#6c7a80;text-align:center}
   .normal.strike{text-decoration:line-through}
-  .now{font-size:13.5pt;font-weight:800;letter-spacing:-.025em;white-space:nowrap}
+  .now{font-size:14.8pt;font-weight:800;letter-spacing:-.025em;white-space:nowrap;text-align:center}
   .now.event{color:#b42b28}.now small{font-size:7pt;font-weight:700;margin-right:1.5mm}
   .pricecard.accent{border-color:#afbec6}
-  .pricecard.accent .qr-area{border-right:.55mm solid #2bc3cf}
-  .pricecard.accent .information{padding-top:10mm}
+  .pricecard.accent .qr-area{border-right:none}
+  .pricecard.accent .information{padding-top:10.5mm}
   .pricecard.accent .brand{position:absolute;left:0;top:0;width:100%;padding:2mm 3mm;background:#12242f;color:#fff;letter-spacing:.06em}
   .pricecard.accent .scan-note{color:#58636a}
   .pricecard.accent .now.event{color:#bf3330}
@@ -84,8 +84,6 @@
     const info=document.createElement('div');info.className='information';
     const brand=document.createElement('div');brand.className='brand';brand.textContent=cfg.brand.name;
     const name=document.createElement('div');name.className='item';name.textContent=p.name;
-    const id=document.createElement('div');id.className='meta';id.textContent='ID: '+p.id+(v.code?' / '+v.code:'');
-    const color=document.createElement('div');color.className='meta';color.textContent=v.name?'カラー: '+v.name:'カラー: 指定なし';
     const prices=document.createElement('div');prices.className='price';
     const event=Number.isFinite(p.eventPrice)&&p.eventPrice>=0&&p.eventPrice<p.price;
     if(event){
@@ -94,7 +92,15 @@
     const now=document.createElement('div');now.className='now'+(event?' event':'');
     if(event){const label=document.createElement('small');label.textContent='展示会';now.append(label)}
     now.append(document.createTextNode(yen(event?p.eventPrice:p.price)));
-    prices.append(now);info.append(brand,name,id,color,prices);el.append(qr,info);return el;
+    prices.append(now);
+    info.append(brand,name,prices);
+    if(v.name){
+      const color=document.createElement('div');color.className='meta';color.textContent='カラー: '+v.name;
+      color.style.marginTop='auto';
+      color.style.textAlign='center';
+      info.append(color);
+    }
+    el.append(qr,info);return el;
   };
   const render=()=>{
     output.replaceChildren();
