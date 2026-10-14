@@ -14,7 +14,6 @@ if(!configured){
   const app=getApps().length?getApp():initializeApp(config);
   const auth=getAuth(app);
   const logout=document.getElementById('logout-btn');
-  const preview=document.getElementById('logout-disabled');
   const loginUrl=()=>{
     const url=new URL('./login.html',location.href);
     const brand=new URLSearchParams(location.search).get('brand');
@@ -24,7 +23,7 @@ if(!configured){
   onAuthStateChanged(auth,user=>{
     if(!user){location.replace(loginUrl());return;}
     document.documentElement.classList.remove('auth-pending');
-    logout.hidden=false;preview.hidden=true;
+    logout.hidden=false;
   },()=>{location.replace(loginUrl());});
   logout.addEventListener('click',async()=>{
     logout.disabled=true;
