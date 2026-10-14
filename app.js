@@ -331,7 +331,7 @@
       <div class="modal-heading"><h2 id="checkout-title" class="modal-title">購入QRを開く</h2><button type="button" class="icon-button" data-close-modal aria-label="閉じる">${ICONS.close}</button></div>
       ${offer.eligibleAppDiscountPercent>0?`<div class="checkout-offer">お名前とメールを登録すると <strong>合計から${offer.eligibleAppDiscountPercent}%OFF</strong><br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:''}
       <p class="modal-desc">登録するか、入力せずに購入QRを表示するか選べます。</p>
-      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ</button></div>
+      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button></div>
       <form id="checkout-form"><div id="registration-fields">
         <label class="form-label" for="buyer-name">お名前 <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-name" name="name" autocomplete="name" required maxlength="80" placeholder="山田 太郎"/>
         <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>
@@ -387,7 +387,12 @@
     else if(clickable.hasAttribute('data-close-modal'))closeModal();
     else if(clickable.hasAttribute('data-theme')){state.previewTheme=clickable.dataset.theme;render();}
     else if(clickable.hasAttribute('data-variant')){state.selectedColors[clickable.dataset.product]=clickable.dataset.variant;render();}
-    else if(clickable.hasAttribute('data-checkout-mode'))setCheckoutMode(clickable.dataset.checkoutMode);
+    else if(clickable.hasAttribute('data-checkout-mode')){
+      const mode=clickable.dataset.checkoutMode;
+      setCheckoutMode(mode);
+      // "Skip" is an action, not a second form step: issue the unregistered QR immediately.
+      if(mode==='skip')submitCheckout($('#checkout-form'));
+    }
   });
   document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();submitCheckout(event.target);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});
