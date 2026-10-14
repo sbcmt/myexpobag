@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja" class="auth-pending">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101d26"><meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>商品・カテゴリ登録｜MY EXPO BAG</title>
+<script src="./firebase-config.js"></script>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;background:#f2f5f7;color:#142734;font-synthesis:none}*{box-sizing:border-box}body{margin:0;min-height:100vh}.auth-pending main,.auth-pending header{visibility:hidden}header{background:#101d26;color:#fff;padding:calc(env(safe-area-inset-top,0px) + 12px) max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}header .top{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:900px;margin:auto}h1{font-size:19px;margin:0}h2{font-size:17px;margin:0 0 12px}p{line-height:1.65}.muted{color:#637580;font-size:12px}.back{color:white;text-decoration:none;font-size:13px;border:1px solid #728691;padding:10px 12px;border-radius:9px;white-space:nowrap}main{max-width:900px;padding:18px 14px 50px;margin:auto}.card{background:white;border:1px solid #dce5ea;border-radius:15px;padding:19px;margin:0 0 16px;box-shadow:0 4px 15px #122b3610}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.field{display:flex;flex-direction:column;gap:5px;margin:0 0 12px;min-width:0}.field label{font-size:12px;font-weight:650}.field input,.field select,.field textarea{width:100%;border:1px solid #bbcbd5;border-radius:9px;background:#fff;color:#172c39;padding:12px;font:inherit;font-size:14px}.field textarea{min-height:72px;resize:vertical}button{font:inherit;cursor:pointer;border-radius:9px;padding:11px 15px;border:1px solid #c0d2db;background:#f1f7fa;color:#163c4d;font-size:13px;font-weight:650}button.primary{background:#163847;color:white;border-color:#163847}button.danger{color:#a23f39;border-color:#ebc9c6;background:#fff}button:disabled{opacity:.5;cursor:not-allowed}.pill{font-size:11px;border:1px solid #d8e5ea;border-radius:99px;padding:6px 10px;display:inline-block;background:#f5f9fa}.status{padding:12px;border-radius:9px;background:#e9f7ed;color:#205b37;font-size:13px;white-space:pre-wrap;line-height:1.6}.status.error{background:#fff0ed;color:#9b302b}.status[hidden],section[hidden],div[hidden]{display:none!important}.category-list{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.cat{display:flex;align-items:center;gap:6px;background:#f3f7f9;border-radius:99px;padding:4px 5px 4px 12px;font-size:13px}.cat button{padding:3px 7px;border-radius:99px;background:#fff;min-width:25px}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}.product-list{border-top:1px solid #e6edef}.product{display:flex;align-items:center;gap:10px;padding:13px 0;border-bottom:1px solid #e6edef}.product-info{flex:1;min-width:0}.product-name{font-weight:700;font-size:14px;word-break:break-word}.product-meta{font-size:12px;color:#647984;margin-top:4px;line-height:1.5}.product button{padding:8px 11px}.checkline{display:flex;align-items:center;gap:8px;font-size:13px;margin:9px 0 15px}.checkline input{width:18px;height:18px;accent-color:#14516b}.tabbar{display:flex;gap:8px;margin-bottom:15px}.tabbar button.active{background:#163847;color:#fff}.hint{font-size:12px;color:#577182;line-height:1.65;margin:7px 0 15px}.preview{max-height:250px;overflow:auto;font-size:12px;border:1px solid #e2e9ed;border-radius:8px;padding:10px;line-height:1.8;background:#f8fafb}.notice{padding:12px 14px;background:#fff7e8;border:1px solid #ead7b0;border-radius:10px;font-size:12px;line-height:1.7;margin-bottom:15px}footer{text-align:center;font-size:11px;color:#81919a;padding:22px}@media(max-width:520px){.cols{grid-template-columns:1fr}h1{font-size:16px}.card{padding:15px}.product{flex-wrap:wrap}.product button{padding:8px 10px}}
+</style>
+</head>
+<body>
+<header><div class="top"><div><h1>商品・カテゴリ登録</h1><div style="font-size:11px;color:#b7cbd6;margin-top:4px" id="brand-label">MY EXPO BAG　v1.0.1</div></div><a class="back" href="./admin.html">← 管理画面</a></div></header>
+<main>
+<div id="loading" class="notice">ログインとブランド情報を確認しています…</div>
+<div id="shell" hidden>
+<div class="notice">この画面は<strong>商品データの登録・管理</strong>まで対応しています。画像登録・お客様ページへの商品公開は次工程です。ここで登録しても、まだ来場者には商品が表示されません。</div>
+<p class="status" id="status" hidden role="status" aria-live="polite"></p>
+<section class="card"><div class="toolbar"><h2>カテゴリ設定</h2><span class="pill" id="category-count">0件</span></div>
+<div class="category-list" id="categories"></div>
+<form id="category-form" class="row"><input id="new-category" aria-label="追加するカテゴリ" maxlength="40" placeholder="例：ランタン、バッグ、雑貨" style="flex:1;min-width:180px;padding:11px;border-radius:9px;border:1px solid #bbcbd5;font:inherit;font-size:14px" required><button class="primary" type="submit">カテゴリを追加</button></form>
+<p class="muted">使用中のカテゴリは削除できません。商品を別カテゴリに変更してから削除できます。</p></section>
+<section class="card"><div class="toolbar"><h2>商品登録・編集</h2><span class="pill">1商品につき画像最大2枚（次工程）</span></div>
+<form id="product-form">
+<div class="cols"><div class="field"><label for="product-id">商品ID（必須）</label><input id="product-id" maxlength="40" placeholder="LT-001" required autocomplete="off" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,39}"></div><div class="field"><label for="product-name">商品名（必須）</label><input id="product-name" maxlength="100" placeholder="LEDランタン" required></div></div>
+<div class="cols"><div class="field"><label for="product-category">カテゴリ（必須）</label><input id="product-category" list="category-options" maxlength="40" placeholder="登録済みから選択・新規入力も可" required><datalist id="category-options"></datalist></div><div class="field"><label for="product-colors">カラー（任意）</label><input id="product-colors" placeholder="BK:ブラック | WH:ホワイト" maxlength="500"></div></div>
+<div class="cols"><div class="field"><label for="product-price">通常価格（税込・円）</label><input id="product-price" type="number" min="0" step="1" max="100000000" required placeholder="4800"></div><div class="field"><label for="product-event-price">展示会限定価格（税込・円・任意）</label><input id="product-event-price" type="number" min="0" step="1" max="100000000" placeholder="4200"></div></div>
+<div class="hint">カラーは <code>BK:ブラック | WH:ホワイト</code> のように「コード:表示名」を半角 | で区切って入力。カラーがなければ空欄です。</div>
+<label class="checkline"><input type="checkbox" id="product-active" checked> この商品を表示対象にする（公開連携後に使用）</label>
+<div class="row"><button class="primary" type="submit" id="product-save">商品を保存</button><button type="button" id="product-clear">入力をクリア</button><span class="muted" id="edit-note">新規登録</span></div>
+</form></section>
+<section class="card"><div class="toolbar"><h2>登録済み商品 <span id="product-count">0</span>件</h2><button id="refresh-products" type="button">一覧を更新</button></div><div id="product-list" class="product-list"><p class="muted">商品はまだ登録されていません。</p></div></section>
+<section class="card"><h2>CSV／TSV一括登録</h2>
+<p class="hint">既存の商品IDがあれば<strong>そのIDの商品を上書き更新</strong>します。画像の登録は別工程です。Excelの「CSV UTF-8」またはタブ区切りに対応しています。</p>
+<div class="row" style="margin-bottom:12px"><button type="button" id="download-csv">CSVテンプレート</button><button type="button" id="download-tsv">TSVテンプレート</button><button type="button" id="export-csv">登録商品CSV出力</button></div>
+<div class="field"><label for="import-file">一括登録ファイル</label><input id="import-file" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values,text/plain"></div>
+<div class="preview" id="import-preview" hidden></div>
+<div class="row" style="margin-top:12px"><button class="primary" type="button" id="import-save" disabled>確認した商品を登録</button><span class="muted">1回300商品まで</span></div>
+</section>
+</div>
+<footer>POWERED BY MY EXPO BAG　v1.0.1</footer>
+</main>
+<script type="module" src="./products.js"></script>
+</body></html>

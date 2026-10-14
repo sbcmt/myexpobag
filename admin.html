@@ -57,7 +57,7 @@
     <section class="card navpanel" id="menu-panel" hidden aria-label="管理メニュー">
       <h2>管理メニュー</h2>
       <div class="admin-menu">
-        <div class="menu-disabled" aria-disabled="true"><span>商品・カテゴリ登録</span><small>準備中</small></div>
+        <a class="menu-link" href="./products.html"><span>商品・カテゴリ登録</span><span aria-hidden="true">›</span></a>
         <div class="menu-disabled" aria-disabled="true"><span>顧客CSVデータダウンロード</span><small>準備中</small></div>
         <button type="button" class="menu-link" id="products-qr-menu" aria-expanded="false" aria-controls="product-qr-panel"><span>商品QRダウンロード</span><span aria-hidden="true">›</span></button>
         <details class="setting-group">
@@ -76,7 +76,7 @@
     </section>
     <section class="card navpanel" id="product-qr-panel" hidden aria-label="商品QRダウンロード見本">
       <div class="panel-top"><h2>商品QRダウンロード</h2><button type="button" class="small-back" id="product-back">← 戻る</button></div>
-      <p class="muted">商品登録機能は準備中です。自分のブランドの商品が登録されるまで、この画面には商品を表示しません。</p>
+      <p class="muted">商品登録は別画面で行えます。商品QRの選択リスト・プライスカード連携は次工程です。</p>
       <label class="select-all"><input type="checkbox" id="product-check-all"> <strong>ALL｜すべて選択</strong></label>
       <div id="products-selection-list" class="product-selection"></div>
       <p class="muted" id="product-selected-count" aria-live="polite">選択数：0商品</p>
@@ -128,7 +128,7 @@
       });
       if(!data.length){
         const empty=document.createElement('p');empty.className='muted';
-        empty.textContent='商品は未登録です。商品管理機能の公開後に、ここから自社商品のQRを選択できます。';
+        empty.textContent='商品QRの一覧連携は準備中です。登録済みの商品は「商品・カテゴリ登録」で確認できます。';
         list.append(empty);all.disabled=true;
       }
       all.addEventListener('change',()=>{list.querySelectorAll('input[data-id]').forEach(el=>el.checked=all.checked);sync()});
