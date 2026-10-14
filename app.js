@@ -24,8 +24,8 @@
   const fileSafe = value => /^(\.\/|\/|https:\/\/)[\w.%/?=&#:+-]+$/i.test(value||'') ? value : '';
   const unitPrice = p => Number.isFinite(p.eventPrice) && p.eventPrice >= 0 && p.eventPrice < p.price ? p.eventPrice : p.price;
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
-  const state = { category:'all', cart:{}, order:null, modalOpen:false, previewTheme:null, toastTimer:null };
-  // The actual bytes fetched at boot are fingerprints, not a manual release file.
+  const state = { category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
+  // App updates are checked independently of the visible version (fixed at 1.0.1).
   const currentHashes = window.MEB_ASSET_HASHES || {};
   const hashSource = window.MEB_DIGEST_TEXT;
   const currentEtags = window.MEB_ASSET_ETAGS || {};
@@ -35,16 +35,39 @@
   let pendingReleaseBuild = '';
   const releaseCheckIntervalMs = 15_000;
 
+  const variantsOf = p => (Array.isArray(p.variants) ? p.variants : []).filter(v=>v && typeof v.code==='string' && typeof v.name==='string' && v.code);
+  const skuKey = (id,color='') => encodeURIComponent(id)+'::'+encodeURIComponent(color);
+  const fromSkuKey = key => {
+    const pos=key.indexOf('::');
+    if(pos<0) return { id:key,color:'' }; // previous bag data stays readable
+    try { return {id:decodeURIComponent(key.slice(0,pos)),color:decodeURIComponent(key.slice(pos+2))}; }
+    catch { return {id:'',color:''}; }
+  };
+  const selectedVariant = (p,color) => variantsOf(p).find(v=>v.code===color);
+  const cartLines = () => Object.entries(state.cart).map(([key,qty])=>{
+    const {id,color}=fromSkuKey(key);
+    return {key,id,color,qty,product:byId(id)};
+  }).filter(line=>line.product && line.qty>0);
+  const cartQtyByProduct = () => {
+    const counts={};for(const line of cartLines())counts[line.id]=(counts[line.id]||0)+line.qty;
+    return counts;
+  };
+  const missingColors = () => cartLines().filter(line=>variantsOf(line.product).length && !selectedVariant(line.product,line.color));
   const ensureCart = () => {
     try {
-      const raw = JSON.parse(localStorage.getItem(cartKey) || '{}');
-      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        for (const [id,qty] of Object.entries(raw)) if(byId(id) && Number.isInteger(qty) && qty > 0 && qty <= 20) state.cart[id] = qty;
+      const raw=JSON.parse(localStorage.getItem(cartKey)||'{}');
+      if(!raw || typeof raw!=='object' || Array.isArray(raw))return;
+      for(const [key,qty] of Object.entries(raw)){
+        const {id,color}=fromSkuKey(key),p=byId(id);
+        if(!p || !Number.isInteger(qty) || qty<1 || qty>20)continue;
+        if(color && !selectedVariant(p,color))continue;
+        const normalized=skuKey(id,color);
+        state.cart[normalized]=Math.min(20,(state.cart[normalized]||0)+qty);
       }
-    } catch { /* private browsing / blocked storage: session-only bag */ }
+    }catch { /* browser storage unavailable -> temporary bag */ }
   };
-  const saveCart = () => { try { localStorage.setItem(cartKey, JSON.stringify(state.cart)); } catch { /* keep in memory */ } };
-  const itemCount = () => Object.values(state.cart).reduce((n,q) => n+q,0);
+  const saveCart = () => {try{localStorage.setItem(cartKey,JSON.stringify(state.cart));}catch{ /* use in-memory bag */ }};
+  const itemCount = () => cartLines().reduce((n,line)=>n+line.qty,0);
   const colorIsLight = hex => {
     const v = hex.replace('#',''); if(!/^[0-9a-f]{6}$/i.test(v)) return false;
     const rgb = [0,2,4].map(i => parseInt(v.slice(i,i+2),16)/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
@@ -61,43 +84,49 @@
     root.style.setProperty('--badger', palette.sub);
     $('meta[name="theme-color"]').content=palette.main;
   };
-  const totalCalc = () => {
-    const listSubtotal = cfg.products.reduce((sum,p)=>sum+(state.cart[p.id]||0)*p.price,0);
-    const eventSubtotal = cfg.products.reduce((sum,p)=>sum+(state.cart[p.id]||0)*unitPrice(p),0);
-    const remaining = {...state.cart};
-    // Maximize savings across the exhibitor's at most three bundles; never reuse an item quantity.
-    const bundles = (cfg.bundles||[]).slice(0,3).filter(b => b.productIds.length>=2 && b.productIds.every(byId) && b.discountPercent>0);
-    let best = { saving:0, details:[] };
-    function search(index, saving, details) {
-      if(index===bundles.length){if(saving>best.saving) best={saving,details:[...details]}; return;}
-      const bundle=bundles[index];
-      const required={};for(const id of bundle.productIds) required[id]=(required[id]||0)+1;
-      const qtyMax=Math.min(20,...Object.entries(required).map(([id,q])=>Math.floor((remaining[id]||0)/q)));
-      const unitBase=bundle.productIds.reduce((n,id)=>n+unitPrice(byId(id)),0);
-      const savingsEach=Math.round(unitBase * Math.min(100,Math.max(0,bundle.discountPercent))/100);
+  const totalCalc = (registered=false) => {
+    const listSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*line.product.price,0);
+    const eventSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*unitPrice(line.product),0);
+    const remaining = cartQtyByProduct();
+    const bundles = (cfg.bundles||[]).slice(0,3).filter(b=>Array.isArray(b.productIds) && b.productIds.length>=2 && b.productIds.every(byId) && Number(b.discountPercent)>0);
+    let best={saving:0,details:[]};
+    function search(index,saving,details){
+      if(index===bundles.length){if(saving>best.saving)best={saving,details:[...details]};return;}
+      const bundle=bundles[index],required={};
+      for(const id of bundle.productIds)required[id]=(required[id]||0)+1;
+      const qtyMax=Math.min(20,...Object.entries(required).map(([id,qty])=>Math.floor((remaining[id]||0)/qty)));
+      const sum=bundle.productIds.reduce((n,id)=>n+unitPrice(byId(id)),0);
+      const eachSaving=Math.round(sum*Math.min(100,Math.max(0,Number(bundle.discountPercent)))/100);
       for(let quantity=0;quantity<=qtyMax;quantity++){
-        if(quantity) for(const [id,q] of Object.entries(required)) remaining[id]-=q;
-        search(index+1,saving+quantity*savingsEach,quantity?[...details,{name:bundle.name,count:quantity,saving:quantity*savingsEach}]:details);
+        if(quantity)for(const [id,qty]of Object.entries(required))remaining[id]-=qty;
+        search(index+1,saving+quantity*eachSaving,quantity?[...details,{name:bundle.name,count:quantity,saving:quantity*eachSaving}]:details);
       }
-      for(const [id,q] of Object.entries(required)) remaining[id]=(remaining[id]||0)+q*qtyMax;
+      for(const [id,qty]of Object.entries(required))remaining[id]=(remaining[id]||0)+qty*qtyMax;
     }
     search(0,0,[]);
-    return { listSubtotal,eventSubtotal,eventSaving:listSubtotal-eventSubtotal,bundleSaving:best.saving,bundles:best.details,total:Math.max(0,eventSubtotal-best.saving) };
+    const beforeAppDiscount=Math.max(0,eventSubtotal-best.saving);
+    const configuredRate=Number(cfg.event?.appPurchaseDiscountPercent??0);
+    const eligibleAppDiscountPercent=Number.isFinite(configuredRate)?Math.min(100,Math.max(0,configuredRate)):0;
+    const appDiscountPercent=registered?eligibleAppDiscountPercent:0;
+    const appDiscountAmount=Math.min(beforeAppDiscount,Math.round(beforeAppDiscount*appDiscountPercent/100));
+    const total=beforeAppDiscount-appDiscountAmount;
+    return {listSubtotal,eventSubtotal,eventSaving:listSubtotal-eventSubtotal,bundleSaving:best.saving,
+      bundles:best.details,beforeAppDiscount,eligibleAppDiscountPercent,appDiscountPercent,appDiscountAmount,total};
   };
   const cardProduct = p => `
     <article class="product-card">
-      <button class="product-cover" data-open-product="${esc(p.id)}" aria-label="${esc(p.name)}の詳細を見る">
+      <button class="product-cover" data-open-product="${esc(p.id)}" aria-label="${esc(p.name)}の商品ページを開く">
         ${p.tag?`<span class="product-tag">${esc(p.tag)}</span>`:''}
         <img src="${esc(fileSafe(p.image))}" alt="${esc(p.name)}" loading="lazy"/>
       </button>
       <div class="product-info">
-        <div class="product-subtitle">${esc(p.subtitle||'')}</div>
+        <div class="product-subtitle">${esc((cfg.categories.find(c=>c.id===p.categoryId)||{}).name||'')} · ID: ${esc(p.id)}</div>
         <h3 class="product-name">${esc(p.name)}</h3>
         <div class="price-line"><div>
           ${unitPrice(p)<p.price?`<span class="price-original">${yen(p.price)}</span>`:''}
           <div class="price-current">${yen(unitPrice(p))}</div>
         </div><button class="add-small" data-add="${esc(p.id)}" aria-label="${esc(p.name)}をBAGに追加">${ICONS.plus}</button></div>
-        ${unitPrice(p)<p.price?'<div class="price-extra">EXPO SPECIAL PRICE</div>':''}
+        ${unitPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}
       </div>
     </article>`;
   const nav = target => { if(location.hash!==target) location.hash=target; else render(); window.scrollTo({top:0,behavior:'instant'}); };
@@ -136,7 +165,7 @@
   const bundleRequired = b => {
     const req={};b.productIds.forEach(id=>{req[id]=(req[id]||0)+1;});return req;
   };
-  const bundleNeed = b => Object.entries(bundleRequired(b)).filter(([id,qty]) => (state.cart[id]||0) < qty);
+  const bundleNeed = b => {const counts=cartQtyByProduct();return Object.entries(bundleRequired(b)).filter(([id,qty])=>(counts[id]||0)<qty).map(([id,qty])=>[id,qty-(counts[id]||0)]);};
   const renderRecommendation = (b,p) => {
     const products=b.productIds.map(byId);
     const individualTotal=products.reduce((sum,item)=>sum+unitPrice(item),0);
@@ -159,40 +188,74 @@
   };
   const renderDetail=p=>{
     const suggestions=eligibleBundles(p.id).map(b=>renderRecommendation(b,p)).filter(Boolean).join('');
+    const variants=variantsOf(p);
+    const color=state.selectedColors[p.id]||'';
+    const category=(cfg.categories.find(c=>c.id===p.categoryId)||{}).name||'未分類';
     $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button>
-      <div class="detail-cover"><img src="${esc(fileSafe(p.image))}" alt="${esc(p.name)}"/></div><div class="detail-en">${esc(p.subtitle)}</div><h1 class="detail-name">${esc(p.name)}</h1><div class="detail-price">${unitPrice(p)<p.price?`<span class="detail-original">${yen(p.price)}</span>`:''}${yen(unitPrice(p))} <span style="font-size:11px;font-weight:500">税込</span></div>
-      ${unitPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}<p class="detail-description">${esc(p.description||'')}</p>
+      <div class="detail-cover"><img src="${esc(fileSafe(p.image))}" alt="${esc(p.name)}"/></div>
+      ${p.image2&&fileSafe(p.image2)?`<div class="detail-second"><img src="${esc(fileSafe(p.image2))}" alt="${esc(p.name)} サブ画像" loading="lazy"/></div>`:''}
+      <div class="detail-en">${esc(category)}　／　商品ID：${esc(p.id)}</div>
+      <h1 class="detail-name">${esc(p.name)}</h1>
+      <div class="detail-price">${unitPrice(p)<p.price?`<span class="detail-original">${yen(p.price)}</span>`:''}${yen(unitPrice(p))} <span style="font-size:11px;font-weight:500">税込</span></div>
+      ${unitPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}
+      ${variants.length?`<section class="variants"><p class="variant-label">カラーを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}">${esc(v.name)}</button>`).join('')}</div></section>`:''}
       <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true">＋　MY BAGに追加する</button>
-      ${suggestions?`<section class="recommendations" aria-label="おすすめの組み合わせ"><div class="recommend-section-header"><span class="eyebrow">BETTER TOGETHER</span><h2>この商品と一緒にいかがですか？</h2><p>一緒に使いたいアイテムを、組み合わせてご紹介します。</p></div><div class="recommend-list">${suggestions}</div></section>`:''}
-      <div class="notice">気になる商品をBAGに追加して、まとめて購入QRを表示できます。代金のお支払いは出展者ブースで行います。</div></div>`;
+      ${suggestions?`<section class="recommendations" aria-label="おすすめの組み合わせ"><div class="recommend-section-header"><span class="eyebrow">BETTER TOGETHER</span><h2>この商品と一緒にいかがですか？</h2></div><div class="recommend-list">${suggestions}</div></section>`:''}
+      <div class="notice">会場の商品を見て色を選んでください。お支払いは出展者ブースで行います。</div></div>`;
   };
   const renderBag=()=>{
-    const totals=totalCalc();
-    const itemRows=cfg.products.filter(p=>state.cart[p.id]).map(p=>`<div class="cart-item"><div class="cart-thumbnail"><img src="${esc(fileSafe(p.image))}" alt=""/></div><div class="cart-main"><div class="cart-title">${esc(p.name)}</div><div class="cart-english">${esc(p.subtitle||'')}</div><div class="cart-amount">${yen(unitPrice(p)*(state.cart[p.id]||0))}</div><div class="qty-row"><button class="remove-btn" data-remove="${esc(p.id)}">削除</button><button class="qty-btn" data-qty="${esc(p.id)}" data-step="-1" aria-label="${esc(p.name)}を1つ減らす">−</button><span class="qty-value">${state.cart[p.id]}</span><button class="qty-btn" data-qty="${esc(p.id)}" data-step="1" aria-label="${esc(p.name)}を1つ増やす">+</button></div></div></div>`).join('');
-    $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button><h1 class="page-title">MY BAG<span style="color:var(--main)">.</span></h1><p class="page-subtitle">選んだ商品とお支払い金額をご確認ください。</p>
+    const totals=totalCalc(false),needColors=missingColors();
+    const itemRows=cartLines().map(line=>`<div class="cart-item"><div class="cart-thumbnail"><img src="${esc(fileSafe(line.product.image))}" alt=""/></div><div class="cart-main"><div class="cart-title">${esc(line.product.name)}</div>
+      <div class="cart-english">ID: ${esc(line.id)}${line.color?' · '+esc(selectedVariant(line.product,line.color)?.name||line.color):(variantsOf(line.product).length?' · カラー未選択':'')}</div>
+      <div class="cart-amount">${yen(unitPrice(line.product)*line.qty)}</div><div class="qty-row"><button class="remove-btn" data-remove="${esc(line.key)}">削除</button>
+      <button class="qty-btn" data-qty="${esc(line.key)}" data-step="-1" aria-label="${esc(line.product.name)}を1つ減らす">−</button><span class="qty-value">${line.qty}</span>
+      <button class="qty-btn" data-qty="${esc(line.key)}" data-step="1" aria-label="${esc(line.product.name)}を1つ増やす">+</button></div>
+      ${variantsOf(line.product).length&&!line.color?`<button class="pick-color-link" data-open-product="${esc(line.id)}">カラーを選ぶ →</button>`:''}</div></div>`).join('');
+    $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button><h1 class="page-title">MY BAG<span style="color:var(--main)">.</span></h1><p class="page-subtitle">商品とお支払い予定金額をご確認ください。</p>
       ${itemCount()?`${itemRows}<section class="order-box"><h2 class="order-heading">ご注文内容</h2>
       <div class="order-row"><span class="order-label">通常価格 合計</span><strong>${yen(totals.listSubtotal)}</strong></div>
       ${totals.eventSaving>0?`<div class="order-row"><span class="order-label">展示会限定価格による割引</span><span class="order-positive">−${yen(totals.eventSaving)}</span></div>`:''}
       ${totals.bundles.map(b=>`<div class="order-row"><span class="order-label">セット割引：${esc(b.name)} × ${b.count}</span><span class="order-positive">−${yen(b.saving)}</span></div>`).join('')}
-      <div class="order-total"><span>お支払い予定額</span><strong>${yen(totals.total)}</strong></div><div class="tiny-text" style="text-align:right;margin-top:5px">税込・お支払いは会場で</div></section>
-      ${cfg.novelty.enabled?`<div class="gift-eligible"><strong>✦ ${totals.total>=cfg.novelty.minSpend?'ノベルティ対象です':'ノベルティ特典'}</strong><p>${totals.total>=cfg.novelty.minSpend?esc(cfg.novelty.name)+'の交換対象となります。':'あと'+yen(cfg.novelty.minSpend-totals.total)+'のお買い物で特典の対象に。'} ${esc(cfg.novelty.note)}</p></div>`:''}
-      <div class="purchase-action"><button class="primary-btn" data-checkout>購入QRを開く　→</button><p class="helptext">初回はお名前とメールアドレスの登録が必要です。<br/>このデモでは実際の注文は送信されません。</p></div>`:
-      `<div class="empty-cart"><span class="empty-cart-emoji">▢</span><h2>MY BAGは空です</h2><p>気になった商品をBAGに追加しましょう。<br/>ここでまとめて注文QRを開けます。</p><button class="outline-btn" data-nav="#home">商品を探す　→</button></div>`}</div>`;
+      <div class="order-total"><span>商品合計（税込）</span><strong>${yen(totals.beforeAppDiscount)}</strong></div>
+      ${totals.eligibleAppDiscountPercent>0?`<div class="register-offer">お名前とメール登録で <strong>さらに${totals.eligibleAppDiscountPercent}%OFF</strong><br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:''}
+      <div class="tiny-text" style="text-align:right;margin-top:9px">お支払いは会場で</div></section>
+      ${cfg.novelty.enabled?`<div class="gift-eligible"><strong>✦ ノベルティ特典</strong><p>${yen(cfg.novelty.minSpend)}以上のお支払いで ${esc(cfg.novelty.name)} の対象。${esc(cfg.novelty.note)}</p></div>`:''}
+      <div class="purchase-action">${needColors.length?`<p class="color-warning">カラーが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length?'disabled':''}>購入QRを開く　→</button><p class="helptext">お名前・メール登録で割引（設定時）。登録せず購入することもできます。<br/>実際の注文はまだ送信されません。</p></div>`:
+      `<div class="empty-cart"><span class="empty-cart-emoji">▢</span><h2>MY BAGは空です</h2><p>気になった商品をBAGに追加しましょう。</p><button class="outline-btn" data-nav="#home">商品を探す　→</button></div>`}</div>`;
   };
+  // This QR is an unsigned order *preview*, never proof of payment.
+  // Identity/email is NOT embedded. The future backend will join the order ID
+  // to the consent / customer record after securely saving it.
+  // Compact field names keep the QR scannable on phones. Map is in README.
+  const orderQrPayload = order => JSON.stringify({
+    t:'MEB2',o:order.id,b:cfg.brand.id,e:cfg.event.id,
+    i:order.items.map(x=>[x.id,x.color,x.qty]),r:order.registered?1:0,
+    c:'JPY',s:order.beforeAppDiscount,p:order.appDiscountPercent,
+    d:order.appDiscountAmount,a:order.total
+  });
   const renderQr=()=>{
-    if(!state.order){$('#view').innerHTML=`<div class="page-body"><h1 class="page-title">注文QR</h1><p class="page-subtitle">このQRはページを閉じると再表示できません。<br/>MY BAGから再度発行してください。</p><button class="primary-btn" data-nav="#bag">MY BAGを見る</button></div>`;return;}
+    if(!state.order){$('#view').innerHTML=`<div class="page-body"><h1 class="page-title">購入QR</h1><p class="page-subtitle">購入QRは再読み込みすると消えます。<br/>MY BAGから再度発行してください。</p><button class="primary-btn" data-nav="#bag">MY BAGを見る</button></div>`;return;}
     const order=state.order;
     $('#view').innerHTML=`<div class="page-body qr-page"><button class="back-button" data-nav="#bag" style="display:flex">${ICONS.left} MY BAGに戻る</button><div class="eyebrow">CHECKOUT QR</div><h1 class="page-title" style="margin-top:9px">購入QR</h1><p class="page-subtitle">この画面を出展者スタッフに見せてください。</p>
-      <section class="qr-card"><div class="qr-status">動作確認用 QR</div><div class="qr-canvas-wrap"><canvas id="order-qr" width="300" height="300" role="img" aria-label="購入QRコード"></canvas></div><div class="qr-order-id">${esc(order.id)}</div><div class="qr-instructions">スタッフにQRを見せて<br/>会計・ノベルティ交換を行います。</div></section>
-      <div style="margin-top:18px"><div class="qr-data-row"><span>ご注文点数</span><strong>${order.count}点</strong></div><div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>${order.gift?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}</div>
-      <div class="demo-alert"><strong>現在はデモ機能です。</strong><br/>QRには注文識別子だけが入り、氏名・メール・金額は含まれません。まだサーバーへの注文登録と出展者端末での照会はできません。実販売には使用しないでください。</div>
+      <section class="qr-card"><div class="qr-status">動作確認用 QR</div><div class="qr-canvas-wrap"><canvas id="order-qr" width="480" height="480" role="img" aria-label="購入QRコード"></canvas></div>
+      <div class="qr-price-box"><div class="qr-price-label">合計金額（税込）</div><div class="qr-price-base">${yen(order.beforeAppDiscount)}</div>
+        ${order.appDiscountPercent>0?`<div class="qr-app-discount"><span>合計から${order.appDiscountPercent}%OFF</span><span>−${yen(order.appDiscountAmount)}</span></div><div class="qr-price-final"><span>割引後のお支払い金額</span><strong>${yen(order.total)}</strong></div>`:''}
+      </div><div class="qr-order-id">${esc(order.id)}</div><div class="qr-instructions">スタッフにQRを見せて<br/>お会計を行います。</div></section>
+      <div style="margin-top:18px"><div class="qr-data-row"><span>登録方法</span><strong>${order.registered?'名前・メールを登録':'登録をスキップ'}</strong></div>
+        ${order.registered?`<div class="qr-data-row"><span>お名前</span><strong>${esc(order.name)}</strong></div><div class="qr-data-row"><span>メール</span><strong class="email-text">${esc(order.email)}</strong></div>`:''}
+        <div class="qr-data-row"><span>ご注文点数</span><strong>${order.count}点</strong></div>
+        ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.id)}${line.color?' / '+esc(line.color):''}</span><strong>×${line.qty}</strong></div>`).join('')}
+        <div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>
+        ${order.gift?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}</div>
+      <div class="demo-alert"><strong>現在はデモ用です。</strong><br/>QRには注文ID・商品ID・色コード・数量・金額・割引条件が入っています。名前とメールはQRには含まれず、サーバーにも保存していません。出展者側の注文記録・CSV連携と価格検証は未実装です。このQRを実際の支払い・特典交換には使用しないでください。</div>
       <button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;
     try{
-      const code=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);code.addData('MEB-DEMO:'+order.id);code.make();
+      const code=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);code.addData(orderQrPayload(order));code.make();
       const canvas=$('#order-qr'),ctx=canvas.getContext('2d');const count=code.getModuleCount();const quiet=4;const size=canvas.width;const cell=Math.floor(size/(count+quiet*2));const offset=Math.floor((size-cell*(count+quiet*2))/2);
+      if(cell<2)throw new Error('QR内の商品数が多すぎます');
       ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);ctx.fillStyle='#111';
       for(let r=0;r<count;r++)for(let c=0;c<count;c++)if(code.isDark(r,c))ctx.fillRect(offset+(c+quiet)*cell,offset+(r+quiet)*cell,cell,cell);
-    }catch(error){console.error('QR生成エラー',error);$('.qr-canvas-wrap').innerHTML='<p>QRを生成できませんでした。</p>';}
+    }catch(error){console.error('QR生成エラー',error);$('.qr-canvas-wrap').innerHTML='<p>QRを生成できませんでした。商品の点数や内容をご確認ください。</p>';}
   };
   const renderFloating=page=>{
     const el=$('#floating-bag');const count=itemCount();if(page!=='home' && page!=='detail'||count<1){el.hidden=true;el.innerHTML='';return;}
@@ -209,56 +272,113 @@
     renderFloating(page);document.title=`${cfg.brand.name} | MY EXPO BAG v${cfg.version}`;
   }
   function toast(message){const box=$('#toast');box.textContent=message;box.classList.add('show');clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>box.classList.remove('show'),1800);}
-  function editCart(id,delta){
-    if(!byId(id)||!Number.isInteger(delta))return;
-    const old=state.cart[id]||0;
-    if(delta>0 && old>=20){toast('1商品あたり20点までです');return;}
+  function editCart(key,delta){
+    const {id}=fromSkuKey(key);if(!byId(id)||!Number.isInteger(delta))return;
+    const old=state.cart[key]||0;
+    if(delta>0 && old>=20){toast('1商品・カラーあたり20点までです');return;}
     const next=Math.max(0,Math.min(20,old+delta));
-    if(next===0)delete state.cart[id];else state.cart[id]=next;
+    if(next===0)delete state.cart[key];else state.cart[key]=next;
     saveCart();render();
   }
+  function addItem(id,goBag=false){
+    const product=byId(id);if(!product)return;
+    if(state.pendingBundle){
+      const pending=(cfg.bundles||[]).find(b=>b.id===state.pendingBundle);
+      if(pending?.productIds.includes(id)){completeBundle();return;}
+    }
+    const variants=variantsOf(product),color=state.selectedColors[id]||'';
+    if(variants.length&&!selectedVariant(product,color)){
+      if(location.hash==='#product/'+encodeURIComponent(id))toast('カラーを選択してください');
+      else{nav('#product/'+encodeURIComponent(id));toast('カラーを選択してください');}
+      return;
+    }
+    const key=skuKey(id,color);
+    if((state.cart[key]||0)>=20){toast('1商品・カラーあたり20点までです');return;}
+    editCart(key,1);toast('MY BAGに追加しました');if(goBag)nav('#bag');
+  }
+  function completeBundle(){
+    const id=state.pendingBundle;
+    const bundle=(cfg.bundles||[]).slice(0,3).find(b=>b.id===id);
+    if(!bundle){state.pendingBundle='';return;}
+    const missing=bundleNeed(bundle);
+    const needsColor=missing.find(([pid])=>variantsOf(byId(pid)).length && !selectedVariant(byId(pid),state.selectedColors[pid]||''));
+    if(needsColor){
+      nav('#product/'+encodeURIComponent(needsColor[0]));
+      toast('この組み合わせのカラーを選択してください');
+      return;
+    }
+    for(const [pid,qty] of missing){
+      const key=skuKey(pid,state.selectedColors[pid]||'');
+      if((state.cart[key]||0)+qty>20){state.pendingBundle='';toast('1商品・カラーあたり20点までです');return;}
+    }
+    for(const [pid,qty] of missing){
+      const key=skuKey(pid,state.selectedColors[pid]||'');
+      state.cart[key]=(state.cart[key]||0)+qty;
+    }
+    state.pendingBundle='';saveCart();nav('#bag');toast('組み合わせをMY BAGに追加しました');
+  }
   function addBundle(id){
-    const b=(cfg.bundles||[]).slice(0,3).find(x=>x.id===id);
-    if(!b || !Array.isArray(b.productIds) || !b.productIds.every(byId))return;
-    const missing=bundleNeed(b);
-    if(!missing.length){nav('#bag');return;}
-    if(missing.some(([pid,qty])=>qty>20)){toast('商品は各20点まで追加できます');return;}
-    missing.forEach(([pid,qty])=>{state.cart[pid]=qty;});
-    saveCart();render();toast('おすすめの組み合わせをMY BAGに追加しました');
+    const bundle=(cfg.bundles||[]).slice(0,3).find(b=>b.id===id);
+    if(!bundle||!Array.isArray(bundle.productIds)||!bundle.productIds.every(byId))return;
+    state.pendingBundle=id;
+    completeBundle();
   }
   function showCheckout(){
-    if(!itemCount())return;
-    state.modalOpen=true;
+    if(!itemCount()||missingColors().length)return;
+    state.modalOpen=true;state.checkoutMode='register';
+    const offer=totalCalc(true),original=totalCalc(false);
     $('#modal-root').innerHTML=`<div class="modal-backdrop" id="checkout-overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
       <div class="modal-heading"><h2 id="checkout-title" class="modal-title">購入QRを開く</h2><button type="button" class="icon-button" data-close-modal aria-label="閉じる">${ICONS.close}</button></div>
-      <p class="modal-desc">会場でのお会計用QRを作成します。<br/>お客様情報を入力してください。</p>
-      <div class="auth-tabs" role="group" aria-label="登録方法"><button class="auth-tab active" type="button">メール登録</button><button class="auth-tab" type="button" disabled aria-label="LINE連携は準備中">LINE連携（準備中）</button></div>
-      <form id="checkout-form"><label class="form-label" for="buyer-name">お名前 <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-name" name="name" autocomplete="name" required maxlength="80" placeholder="山田 太郎"/>
-      <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>
-      <label class="form-check"><input type="checkbox" name="news"/><span>新商品やイベントのお知らせをメールで受け取る（任意）</span></label>
-      <p class="tiny-text">お名前・メールアドレスは注文確認のために利用する想定です。お知らせ配信への同意は任意です。正式公開前に出展者ごとのプライバシー案内を追加します。</p>
-      <p class="tiny-text" style="color:#955b34"><strong>デモ：</strong>入力された情報はサーバーへ送信されず、このページを開いている間だけ保持します。</p>
-      <div class="form-error" id="checkout-error" role="alert"></div><button class="primary-btn" type="submit">購入QRを表示する →</button></form></section></div>`;
+      ${offer.eligibleAppDiscountPercent>0?`<div class="checkout-offer">お名前とメールを登録すると <strong>合計から${offer.eligibleAppDiscountPercent}%OFF</strong><br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:''}
+      <p class="modal-desc">登録するか、入力せずに購入QRを表示するか選べます。</p>
+      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ</button></div>
+      <form id="checkout-form"><div id="registration-fields">
+        <label class="form-label" for="buyer-name">お名前 <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-name" name="name" autocomplete="name" required maxlength="80" placeholder="山田 太郎"/>
+        <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>
+        <label class="form-check"><input type="checkbox" name="news"/><span>新商品やイベントのお知らせをメールで受け取る（任意）</span></label>
+        <p class="tiny-text">購入者情報の登録と、広告メールを受け取る同意は別です。出展者によるプライバシー案内は管理画面接続時に追加します。</p></div>
+        <div id="skip-description" class="skip-description" hidden>登録なしでQRを発行します。${offer.eligibleAppDiscountPercent>0?'アプリ購入割引は適用されません。':'商品・セット割引はそのまま適用されます。'}</div>
+        <div class="checkout-price-preview" id="checkout-price-preview">${offer.eligibleAppDiscountPercent>0?`<span>登録後のお支払い金額</span><strong>${yen(offer.total)}</strong>`:`<span>お支払い予定額</span><strong>${yen(offer.total)}</strong>`}</div>
+        <p class="tiny-text" style="color:#955b34"><strong>デモ：</strong>お名前・メールはこの画面内のみで扱い、サーバーへ送信しません。QRにも入れません。</p>
+        <div class="form-error" id="checkout-error" role="alert"></div><button class="primary-btn" type="submit">購入QRを表示する →</button></form></section></div>`;
     $('#buyer-name').focus();
+  }
+  function setCheckoutMode(mode){
+    if(!state.modalOpen||!['register','skip'].includes(mode))return;
+    state.checkoutMode=mode;
+    const register=mode==='register';
+    $('#registration-fields').hidden=!register;$('#skip-description').hidden=register;
+    $('#buyer-name').required=register;$('#buyer-email').required=register;
+    document.querySelectorAll('[data-checkout-mode]').forEach(btn=>{const active=btn.dataset.checkoutMode===mode;btn.classList.toggle('active',active);btn.setAttribute('aria-pressed',String(active));});
+    const totals=totalCalc(register);
+    $('#checkout-price-preview').innerHTML=`<span>${register&&totals.appDiscountPercent>0?'割引後の': ''}お支払い予定額</span><strong>${yen(totals.total)}</strong>`;
+    $('#checkout-error').textContent='';
   }
   function closeModal(){state.modalOpen=false;$('#modal-root').innerHTML='';}
   function submitCheckout(form){
-    if(!form.reportValidity())return;
-    const fd=new FormData(form),name=String(fd.get('name')||'').trim(),email=String(fd.get('email')||'').trim();
-    if(!name||!email){$('#checkout-error').textContent='お名前とメールアドレスを入力してください。';return;}
-    const bytes=new Uint8Array(10);if(window.crypto?.getRandomValues)crypto.getRandomValues(bytes);else for(let i=0;i<bytes.length;i++)bytes[i]=Math.floor(Math.random()*256);
+    const registered=state.checkoutMode==='register';
+    if(registered&&!form.reportValidity())return;
+    const fd=new FormData(form),name=registered?String(fd.get('name')||'').trim():'',email=registered?String(fd.get('email')||'').trim():'';
+    if(registered&&(!name||!email)){$('#checkout-error').textContent='お名前とメールアドレスを入力してください。';return;}
+    if(!window.crypto?.getRandomValues){$('#checkout-error').textContent='安全な注文番号を作成できません。HTTPSで開いてください。';return;}
+    const bytes=new Uint8Array(10);crypto.getRandomValues(bytes);
     const id='DEMO-'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
-    const totals=totalCalc();
-    state.order={id,name,email,newsletterConsent:fd.get('news')==='on',createdAt:new Date().toISOString(),items:{...state.cart},count:itemCount(),total:totals.total,gift:!!cfg.novelty.enabled&&totals.total>=cfg.novelty.minSpend};
+    const totals=totalCalc(registered);
+    const items=cartLines().map(line=>({id:line.id,color:line.color,qty:line.qty}));
+    state.order={id,registered,name,email,newsletterConsent:registered&&fd.get('news')==='on',createdAt:new Date().toISOString(),
+      items,count:itemCount(),listSubtotal:totals.listSubtotal,eventSubtotal:totals.eventSubtotal,bundleSaving:totals.bundleSaving,
+      beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,
+      appDiscountAmount:totals.appDiscountAmount,total:totals.total,
+      gift:!!cfg.novelty.enabled&&totals.total>=cfg.novelty.minSpend};
     closeModal();nav('#qr');
   }
   document.addEventListener('click', event=>{
     if(event.target.id==='checkout-overlay'){closeModal();return;}
-    const clickable=event.target.closest('[data-nav],[data-open-product],[data-add],[data-qty],[data-remove],[data-add-bundle],[data-category],[data-checkout],[data-close-modal],[data-theme]');
+    const clickable=event.target.closest('[data-nav],[data-open-product],[data-add],[data-qty],[data-remove],[data-add-bundle],[data-category],[data-checkout],[data-close-modal],[data-theme],[data-variant],[data-checkout-mode]');
     if(!clickable)return;
-    if(clickable.hasAttribute('data-nav'))nav(clickable.dataset.nav);
+    if(clickable.hasAttribute('data-nav')){state.pendingBundle='';nav(clickable.dataset.nav);}
     else if(clickable.hasAttribute('data-open-product'))nav('#product/'+encodeURIComponent(clickable.dataset.openProduct));
-    else if(clickable.hasAttribute('data-add')){editCart(clickable.dataset.add,1);toast('MY BAGに追加しました');if(clickable.dataset.goBag==='true')nav('#bag');}
+    else if(clickable.hasAttribute('data-add'))addItem(clickable.dataset.add,clickable.dataset.goBag==='true');
     else if(clickable.hasAttribute('data-qty'))editCart(clickable.dataset.qty,Number(clickable.dataset.step));
     else if(clickable.hasAttribute('data-remove')){delete state.cart[clickable.dataset.remove];saveCart();render();}
     else if(clickable.hasAttribute('data-add-bundle'))addBundle(clickable.dataset.addBundle);
@@ -266,6 +386,8 @@
     else if(clickable.hasAttribute('data-checkout'))showCheckout();
     else if(clickable.hasAttribute('data-close-modal'))closeModal();
     else if(clickable.hasAttribute('data-theme')){state.previewTheme=clickable.dataset.theme;render();}
+    else if(clickable.hasAttribute('data-variant')){state.selectedColors[clickable.dataset.product]=clickable.dataset.variant;render();}
+    else if(clickable.hasAttribute('data-checkout-mode'))setCheckoutMode(clickable.dataset.checkoutMode);
   });
   document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();submitCheckout(event.target);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});

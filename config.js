@@ -8,7 +8,6 @@ window.MEB_CONFIG = {
   brand: {
     id: 'fieldnote-demo',
     name: 'FIELDNOTE',
-    tagline: 'Everyday objects, better stories.',
     description: '日々の暮らしと、週末の外遊びに。',
     logoUrl: '', // Example: './assets/brand-logo.png'
     themePreset: 'natural',
@@ -18,6 +17,7 @@ window.MEB_CONFIG = {
     id: 'expo-demo-001',
     name: 'POP-UP EXHIBITION',
     accentLabel: 'EVENT EXCLUSIVE',
+    appPurchaseDiscountPercent: 10, // デモ確認用：登録者だけ合計から10%OFF。無効にする場合は 0
     banner: {
       enabled: true,
       eyebrow: 'PICK UP ITEM',
@@ -33,13 +33,15 @@ window.MEB_CONFIG = {
     { id: 'tableware', name: 'テーブルウェア' },
     { id: 'accessories', name: 'アクセサリー' },
   ],
+  // Product registration will be managed through the exhibitor admin screen.
+  // Up to 2 images per PRODUCT, not per color. Color choices are text/code only.
   products: [
-    { id: 'lantern', categoryId: 'lights', name: 'ポータブルランタン', subtitle: 'Portable Lantern', price: 4800, eventPrice: 4200, image: './assets/lantern.svg', tag: '人気商品', description: 'キャンプサイトでも自宅でも、やわらかな灯りを楽しめるコンパクトランタン。' },
-    { id: 'table', categoryId: 'furniture', name: 'フォールディングテーブル', subtitle: 'Folding Table', price: 6500, eventPrice: 5900, image: './assets/table.svg', tag: '展示会特価', description: '持ち運びしやすく、さまざまなシーンに馴染むシンプルな折りたたみテーブル。' },
-    { id: 'mug', categoryId: 'tableware', name: 'ステンレスマグ', subtitle: 'Steel Mug', price: 2400, eventPrice: null, image: './assets/mug.svg', tag: '', description: '手になじむフォルムと、日常使いにちょうど良いサイズ感。' },
-    { id: 'chair', categoryId: 'furniture', name: 'コンパクトチェア', subtitle: 'Compact Chair', price: 9800, eventPrice: 8800, image: './assets/chair.svg', tag: 'おすすめ', description: '軽やかに持ち運べる、休日の特等席。' },
-    { id: 'tote', categoryId: 'accessories', name: 'キャンバストート', subtitle: 'Canvas Tote', price: 3600, eventPrice: 3200, image: './assets/tote.svg', tag: '', description: 'タフで使いやすい、ほどよいサイズのキャンバスバッグ。' },
-    { id: 'bottle', categoryId: 'tableware', name: 'スリムボトル', subtitle: 'Slim Bottle', price: 3100, eventPrice: 2800, image: './assets/bottle.svg', tag: '', description: 'すっきりした形状で、バッグにも収まりやすい携帯ボトル。' },
+    { id:'lantern', categoryId:'lights', name:'ポータブルランタン', price:4800, eventPrice:4200, image:'./assets/lantern.svg', image2:'', tag:'人気商品', variants:[{code:'BK',name:'ブラック'},{code:'KH',name:'カーキ'},{code:'BE',name:'ベージュ'}] },
+    { id:'table', categoryId:'furniture', name:'フォールディングテーブル', price:6500, eventPrice:5900, image:'./assets/table.svg', variants:[{code:'BK',name:'ブラック'},{code:'NT',name:'ナチュラル'}] },
+    { id:'mug', categoryId:'tableware', name:'ステンレスマグ', price:2400, eventPrice:null, image:'./assets/mug.svg', variants:[] },
+    { id:'chair', categoryId:'furniture', name:'コンパクトチェア', price:9800, eventPrice:8800, image:'./assets/chair.svg', variants:[{code:'BK',name:'ブラック'},{code:'GY',name:'グレー'}] },
+    { id:'tote', categoryId:'accessories', name:'キャンバストート', price:3600, eventPrice:3200, image:'./assets/tote.svg', variants:[] },
+    { id:'bottle', categoryId:'tableware', name:'スリムボトル', price:3100, eventPrice:2800, image:'./assets/bottle.svg', variants:[] },
   ],
   bundles: [
     { id: 'outdoor-duo', name: 'LIGHT & TABLE', subtitle: '灯りとテーブルを一緒に。', productIds: ['lantern', 'table'], discountPercent: 10 },
