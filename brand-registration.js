@@ -54,7 +54,7 @@ export async function createBrand(user,input){
       logoUrl:'',
       createdAt:serverTimestamp(),updatedAt:serverTimestamp()
     });
-    transaction.set(routeRef,{brandId:uid,ownerUid:uid,slug});
+    transaction.set(routeRef,{brandId:uid,ownerUid:uid,slug,displayName:original,logoUrl:''});
   });
   return {slug,displayName:original,brandId:uid};
 }

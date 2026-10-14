@@ -12,14 +12,14 @@
   <link rel="manifest" href="./manifest.webmanifest"/>
   <meta name="apple-mobile-web-app-title" content="MY EXPO BAG"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
   <!-- Network-only service worker: no stale copies of app files are served. -->
   <script>
     (async () => {
       'use strict';
       // Displayed product version stays 1.0.1. Each launch fetches the real live files.
       // No manual edit to release.json is required to detect an app/config update.
-      const files=['index.html','styles.css','config.js','qr.js','app.js'];
+      const files=['index.html','styles.css','firebase-config.js','customer-brand.js','qr.js','app.js'];
       const cacheToken=String(Date.now())+'-'+Math.random().toString(36).slice(2,9);
       const digest=text=>{
         // Two independent lightweight 32-bit hashes. Only used for change detection.
@@ -72,7 +72,7 @@
         if(document.readyState==='loading'){
           await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
         }
-        for(const filename of ['config.js','qr.js','app.js']){
+        const runScript=async filename=>{
           const url=URL.createObjectURL(new Blob([data[filename]],{type:'text/javascript'}));
           try{
             await new Promise((resolve,reject)=>{
@@ -83,13 +83,23 @@
               document.body.appendChild(script);
             });
           }finally{URL.revokeObjectURL(url);}
-        }
+        };
+        // Read the validated, public brand routing record before rendering anything.
+        // A missing brand, unpublished brand or network problem must NEVER fall
+        // back to the sample FIELDNOTE catalog.
+        await runScript('firebase-config.js');
+        await runScript('customer-brand.js');
+        const slug=new URLSearchParams(location.search).get('brand');
+        const customerConfig=await window.MEB_LOAD_CUSTOMER_BRAND(slug);
+        window.MEB_CONFIG=customerConfig;
+        await runScript('qr.js');
+        await runScript('app.js');
       }catch(error){
         console.error('アプリの最新データ取得に失敗:',error);
         if(document.readyState==='loading'){
           await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
         }
-        status('通信ができないため、最新の商品情報を取得できませんでした。オンラインでページを開き直してください。');
+        status(error?.customerMessage || 'ブランド情報を読み込めませんでした。正しいブランド専用URLを確認し、オンラインで開き直してください。');
       }
     })();
   </script>

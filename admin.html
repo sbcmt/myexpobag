@@ -75,7 +75,7 @@
     </section>
     <section class="card navpanel" id="product-qr-panel" hidden aria-label="商品QRダウンロード見本">
       <div class="panel-top"><h2>商品QRダウンロード</h2><button type="button" class="small-back" id="product-back">← 戻る</button></div>
-      <p class="muted">現在は仮の商品を使った選択・印刷プレビューです。商品別URLが発行される管理機能を接続した後に、本番QRが有効になります。</p>
+      <p class="muted">商品登録機能は準備中です。自分のブランドの商品が登録されるまで、この画面には商品を表示しません。</p>
       <label class="select-all"><input type="checkbox" id="product-check-all"> <strong>ALL｜すべて選択</strong></label>
       <div id="products-selection-list" class="product-selection"></div>
       <p class="muted" id="product-selected-count" aria-live="polite">選択数：0商品</p>
@@ -96,7 +96,6 @@
     </section>
     <footer>POWERED BY <strong>MY EXPO BAG</strong>　v1.0.1</footer>
   </main>
-  <script src="./config.js"></script>
   <script>
     (()=>{
       const menu=document.getElementById('menu-panel');
@@ -107,7 +106,7 @@
       const list=document.getElementById('products-selection-list');
       const count=document.getElementById('product-selected-count');
       const previewBtns=[document.getElementById('preview-light'),document.getElementById('preview-dark')];
-      const data=(window.MEB_CONFIG?.products||[]).filter(p=>p&&p.id&&p.name);
+      const data=[]; // The old config.js catalog is SAMPLE data, never an exhibitor's own products.
       const yen=n=>'¥'+Math.round(n).toLocaleString('ja-JP');
       const currentSelected=()=>[...list.querySelectorAll('input[data-id]:checked')].map(el=>el.dataset.id);
       const sync=()=>{
@@ -126,6 +125,11 @@
         text.append(title,detail);row.append(input,text);list.append(row);
         input.addEventListener('change',sync);
       });
+      if(!data.length){
+        const empty=document.createElement('p');empty.className='muted';
+        empty.textContent='商品は未登録です。商品管理機能の公開後に、ここから自社商品のQRを選択できます。';
+        list.append(empty);all.disabled=true;
+      }
       all.addEventListener('change',()=>{list.querySelectorAll('input[data-id]').forEach(el=>el.checked=all.checked);sync()});
       btnMenu.addEventListener('click',()=>{
         const opened=menu.hidden;

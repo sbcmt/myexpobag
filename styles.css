@@ -109,3 +109,7 @@ a{color:inherit}
 
 /* Larger, higher-contrast code for staff smartphone camera. */
 .qr-canvas-wrap{width:300px}
+
+/* v1.0.1 customer PWA: keep top controls below the iOS status bar. */
+.site-header{padding-top:calc(env(safe-area-inset-top,0px) + 6px)}
+@media (display-mode:standalone){.site-header{padding-top:calc(env(safe-area-inset-top,0px) + 10px)}}
