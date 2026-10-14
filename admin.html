@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e1820">
+  <meta name="description" content="MY EXPO BAG 出展者用管理ページ">
+  <title>MY EXPO BAG 管理</title>
+  <!-- Customer and admin get different Home Screen labels, icons and PWA IDs. -->
+  <link rel="icon" type="image/png" href="./myexpobag_admin_icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="./myexpobag_admin_icon.png">
+  <link rel="manifest" href="./admin.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="EXPO BAG 管理">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <style>
+    :root{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif;color:#14212a;background:#f3f5f6;font-synthesis:none}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh}button,a{font:inherit}button{cursor:pointer}a{color:inherit}
+    .header{background:#101d26;color:#fff;padding:14px max(18px,env(safe-area-inset-left));display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .brand{display:flex;align-items:center;gap:10px;min-width:0}.brand img{width:42px;height:42px;border-radius:10px}.brand h1{font-size:15px;margin:0}.brand small{color:#bfd1db;display:block;margin-top:2px;font-size:11px}
+    .controls{display:flex;gap:8px}.controls button{border:1px solid #536570;border-radius:9px;color:white;background:transparent;padding:9px 11px;font-weight:650;font-size:12px;white-space:nowrap}
+    .controls button[aria-expanded="true"]{background:#24424e;border-color:#4cb5ce}
+    .wrap{width:min(720px,100%);margin:0 auto;padding:18px 16px 80px}
+    .notice{color:#704610;background:#fff3d9;border:1px solid #f0d19d;font-size:12px;border-radius:10px;padding:12px 14px;line-height:1.7;margin-bottom:14px}
+    .card{background:#fff;border:1px solid #e1e6e9;border-radius:16px;padding:18px;box-shadow:0 3px 15px rgba(13,30,42,.04);margin-bottom:14px}
+    .card h2{font-size:17px;margin:0 0 10px}.muted{color:#61737e;font-size:13px;line-height:1.75;margin:5px 0}
+    .scanner{border-radius:12px;min-height:215px;background:linear-gradient(145deg,#1a3541,#0b111b);display:flex;align-items:center;justify-content:center;flex-direction:column;color:#d9e9f1;margin:16px 0 12px;gap:14px}
+    .scanner-symbol{position:relative;width:100px;height:100px;border:5px solid #fff;border-radius:14px;clip-path:polygon(0 0,30% 0,30% 9%,70% 9%,70% 0,100% 0,100% 100%,70% 100%,70% 91%,30% 91%,30% 100%,0 100%)}
+    .scanner-symbol:after{content:"";position:absolute;top:48px;left:-8px;width:110px;height:3px;background:#22d3ee;box-shadow:0 0 15px #22d3ee}
+    .scanner strong{font-size:13px;font-weight:600}.result{margin-top:15px;border-top:1px solid #e4ebef;padding-top:17px}.result-label{font-size:12px;color:#72828e}.result-value{font-size:30px;font-weight:800;margin-top:7px;color:#9aa7ae}.empty{font-size:12px;color:#8a99a1;margin:8px 0 0}
+    .navpanel[hidden]{display:none}.setting-item{display:flex;align-items:center;justify-content:space-between;text-decoration:none;background:#f2f7fa;padding:14px;border:1px solid #d9e4e9;border-radius:11px;gap:12px;font-size:14px;font-weight:650}
+    .setting-item small{display:block;color:#637782;margin-top:5px;font-size:11px;font-weight:400}
+    .setting-item span:last-child{color:#007b9f;font-size:21px}
+    .todo{display:flex;justify-content:space-between;padding:12px 4px;border-bottom:1px solid #e8ecee;font-size:14px}.todo:last-child{border-bottom:0}.soon{font-size:11px;color:#687980}
+    footer{text-align:center;color:#83909a;font-size:11px;padding-top:15px}footer strong{color:#475966}
+    @media(max-width:400px){.brand h1{font-size:13px}.controls button{padding:8px;font-size:11px}.brand img{width:36px;height:36px}}
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <img src="./myexpobag_admin_icon.png" alt="管理ページアイコン">
+      <div><h1>MY EXPO BAG 管理</h1><small>出展者・販売スタッフ用</small></div>
+    </div>
+    <div class="controls">
+      <button type="button" id="menu-btn" aria-controls="menu-panel" aria-expanded="false">☰ メニュー</button>
+      <button type="button" id="settings-btn" aria-controls="settings-panel" aria-expanded="false">⚙ 設定</button>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="notice"><strong>v1.0.1｜管理画面の初期レイアウトです。</strong><br>ログイン認証・QR読み取り・顧客データ保存はまだ接続されていません。公開する場合は実際の顧客情報や機密データを登録しないでください。</div>
+    <section class="card navpanel" id="settings-panel" hidden aria-label="設定">
+      <h2>⚙ 設定</h2>
+      <a id="customer-page-link" class="setting-item" href="./index.html" target="_blank" rel="noopener noreferrer">
+        <span>お客様ページを見る<small>現在のブランドの商品一覧を別タブで確認</small></span><span aria-hidden="true">↗</span>
+      </a>
+      <p class="muted">ブランド別URLの自動切り替えは、ブランド管理機能の実装後に有効になります。</p>
+    </section>
+    <section class="card navpanel" id="menu-panel" hidden aria-label="管理メニュー">
+      <h2>☰ 管理メニュー</h2>
+      <div class="todo"><span>商品・カテゴリ登録</span><span class="soon">準備中</span></div>
+      <div class="todo"><span>展示会価格・バンドル・アプリ割引</span><span class="soon">準備中</span></div>
+      <div class="todo"><span>ノベルティ設定</span><span class="soon">準備中</span></div>
+      <div class="todo"><span>ブランド・カラー設定</span><span class="soon">準備中</span></div>
+      <div class="todo"><span>顧客CSVダウンロード</span><span class="soon">準備中</span></div>
+    </section>
+    <section class="card" aria-label="QR読み取り">
+      <h2>購入QR読み取り</h2>
+      <p class="muted">販売時はこの画面からQRを読み取り、金額と対象者だけにノベルティを表示します。</p>
+      <div class="scanner" aria-label="QR読み取り機能は準備中">
+        <div class="scanner-symbol" aria-hidden="true"></div>
+        <strong>QRスキャナー（今後実装）</strong>
+      </div>
+      <div class="result"><div class="result-label">お支払い金額</div><div class="result-value">— 円</div><p class="empty">QRの読み取り待ちです。ノベルティは対象の場合にのみ表示します。</p></div>
+    </section>
+    <footer>POWERED BY <strong>MY EXPO BAG</strong>　v1.0.1</footer>
+  </main>
+  <script>
+    (()=>{
+      const menu=document.getElementById('menu-panel');
+      const settings=document.getElementById('settings-panel');
+      const btnMenu=document.getElementById('menu-btn');
+      const btnSettings=document.getElementById('settings-btn');
+      const toggle=(target,ownButton,other,otherButton)=>{
+        const show=target.hidden;
+        target.hidden=!show;ownButton.setAttribute('aria-expanded',String(show));
+        other.hidden=true;otherButton.setAttribute('aria-expanded','false');
+      };
+      btnMenu.addEventListener('click',()=>toggle(menu,btnMenu,settings,btnSettings));
+      btnSettings.addEventListener('click',()=>toggle(settings,btnSettings,menu,btnMenu));
+      // Keep the current brand slug when it is supplied, so the link is already
+      // compatible with the future brand-specific page routing. The current
+      // customer app does not yet filter its data by this parameter.
+      const brand=new URLSearchParams(location.search).get('brand');
+      if(brand && /^[a-z0-9-]{1,48}$/.test(brand)){
+        const url=new URL('./index.html',location.href);url.searchParams.set('brand',brand);
+        document.getElementById('customer-page-link').href=url.href;
+      }
+    })();
+  </script>
+</body>
+</html>
