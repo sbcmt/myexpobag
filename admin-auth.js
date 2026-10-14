@@ -5,7 +5,7 @@ const loginUrl=new URL('./login.html',location.href).href;
 const brandSetupUrl=new URL('./brand-setup.html',location.href).href;
 if(!configured){location.replace(loginUrl)}else{
   try{
-    const [{initializeApp,getApps,getApp},{getAuth,onAuthStateChanged,signOut},{getFirestore,getDoc,doc,updateDoc}]=await Promise.all([
+    const [{initializeApp,getApps,getApp},{getAuth,onAuthStateChanged,signOut},{getFirestore,getDoc,doc}]=await Promise.all([
       import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js'),
       import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js'),
       import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js')
@@ -19,14 +19,8 @@ if(!configured){location.replace(loginUrl)}else{
         const snapshot=await getDoc(doc(db,'brands',user.uid));
         if(!snapshot.exists()){location.replace(brandSetupUrl);return;}
         const brand=snapshot.data();
-        // Publish ONLY the non-sensitive brand name/logo for public customer pages.
-        // For existing brands, this upgrades the earlier slug-only document.
-        // Brand/owner identity stays immutable and is validated by Firestore rules.
-        if(brand.slug){
-          await updateDoc(doc(db,'brandHandles',brand.slug),{
-            displayName:brand.displayName,logoUrl:brand.logoUrl||''
-          });
-        }
+        // Brand display name/logo are mirrored atomically on account.html,
+        // rather than rewriting the public brand document at every login.
         const link=new URL('./index.html',location.href);
         link.searchParams.set('brand',brand.slug);
         document.getElementById('customer-page-link').href=link.href;
