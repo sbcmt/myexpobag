@@ -31,7 +31,8 @@
     .navpanel[hidden]{display:none}.setting-item{display:flex;align-items:center;justify-content:space-between;text-decoration:none;background:#f2f7fa;padding:14px;border:1px solid #d9e4e9;border-radius:11px;gap:12px;font-size:14px;font-weight:650}
     .setting-item small{display:block;color:#637782;margin-top:5px;font-size:11px;font-weight:400}
     .setting-item span:last-child{color:#007b9f;font-size:21px}
-    .todo{display:flex;justify-content:space-between;padding:12px 4px;border-bottom:1px solid #e8ecee;font-size:14px}.todo:last-child{border-bottom:0}.soon{font-size:11px;color:#687980}
+    .admin-menu{display:flex;flex-direction:column;gap:3px}.menu-link,.menu-disabled,.setting-group summary{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;text-align:left;border:0;border-radius:9px;padding:13px 14px;font-size:14px;background:#f2f7fa;color:#152b37;text-decoration:none;font-weight:650;min-height:48px}.menu-link:hover,.setting-group summary:hover{background:#e5f1f7}.menu-disabled{color:#546771;background:#f7f9fa}.menu-disabled small{color:#7d8b94;font-size:11px;white-space:nowrap}.setting-group summary{cursor:pointer;list-style:none}.setting-group summary::-webkit-details-marker{display:none}.setting-group .expand-hint{font-weight:400;color:#5c7888;font-size:12px}.submenu{margin-left:14px;border-left:2px solid #dfebf1;padding-left:9px;margin-top:4px;display:flex;flex-direction:column;gap:3px}.submenu .menu-disabled{font-size:13px;background:#fff;border:1px solid #e5edf1}.setting-group[open] summary{background:#dfedf4}.panel-top{display:flex;justify-content:space-between;align-items:center;gap:10px}.panel-top h2{margin:0}.small-back{background:#f0f6f8;border:1px solid #d6e5ec;border-radius:8px;font-size:12px;padding:8px 10px}.select-all{display:flex;align-items:center;gap:9px;padding:12px 8px;border-bottom:1px solid #d8e2e8;font-size:13px}.select-all input,.product-row input{width:18px;height:18px;accent-color:#147794;flex:0 0 auto}.product-selection{display:flex;flex-direction:column}.product-row{display:flex;gap:10px;align-items:center;padding:11px 8px;border-bottom:1px solid #ecf0f2;font-size:13px}.product-row>span{flex:1}.product-row strong{display:block}.product-row small{display:block;color:#72828b;margin-top:3px}.preview-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.preview-action{background:#1c3645;color:#fff;border:0;border-radius:9px;font-size:12px;padding:12px 6px}.preview-action.secondary{background:#36566a}.preview-action:disabled{opacity:.4;cursor:not-allowed}
+
     footer{text-align:center;color:#83909a;font-size:11px;padding-top:15px}footer strong{color:#475966}
     @media(max-width:560px){.header{align-items:flex-start}.controls{max-width:42%;gap:6px}.controls button{padding:8px 10px;font-size:11px}.brand h1{font-size:14px}.brand small{font-size:10px}}@media(max-width:400px){.brand h1{font-size:13px}.controls{max-width:45%}.controls button{padding:8px;font-size:11px;min-height:38px}.brand img{width:36px;height:36px}}
   </style>
@@ -44,25 +45,39 @@
     </div>
     <div class="controls">
       <button type="button" id="menu-btn" aria-controls="menu-panel" aria-expanded="false">☰ メニュー</button>
-      <button type="button" id="settings-btn" aria-controls="settings-panel" aria-expanded="false">⚙ 設定</button>
     </div>
   </header>
   <main class="wrap">
     <div class="notice"><strong>v1.0.1｜管理画面の初期レイアウトです。</strong><br>ログイン認証・QR読み取り・顧客データ保存はまだ接続されていません。公開する場合は実際の顧客情報や機密データを登録しないでください。</div>
-    <section class="card navpanel" id="settings-panel" hidden aria-label="設定">
-      <h2>⚙ 設定</h2>
-      <a id="customer-page-link" class="setting-item" href="./index.html" target="_blank" rel="noopener noreferrer">
-        <span>お客様ページを見る<small>現在のブランドの商品一覧を別タブで確認</small></span><span aria-hidden="true">↗</span>
-      </a>
-      <p class="muted">ブランド別URLの自動切り替えは、ブランド管理機能の実装後に有効になります。</p>
-    </section>
     <section class="card navpanel" id="menu-panel" hidden aria-label="管理メニュー">
-      <h2>☰ 管理メニュー</h2>
-      <div class="todo"><span>商品・カテゴリ登録</span><span class="soon">準備中</span></div>
-      <div class="todo"><span>展示会価格・バンドル・アプリ割引</span><span class="soon">準備中</span></div>
-      <div class="todo"><span>ノベルティ設定</span><span class="soon">準備中</span></div>
-      <div class="todo"><span>ブランド・カラー設定</span><span class="soon">準備中</span></div>
-      <div class="todo"><span>顧客CSVダウンロード</span><span class="soon">準備中</span></div>
+      <h2>管理メニュー</h2>
+      <div class="admin-menu">
+        <div class="menu-disabled" aria-disabled="true"><span>商品・カテゴリ登録</span><small>準備中</small></div>
+        <div class="menu-disabled" aria-disabled="true"><span>顧客CSVデータダウンロード</span><small>準備中</small></div>
+        <button type="button" class="menu-link" id="products-qr-menu" aria-expanded="false" aria-controls="product-qr-panel"><span>商品QRダウンロード</span><span aria-hidden="true">›</span></button>
+        <details class="setting-group">
+          <summary>設定 <span class="expand-hint">開く <span aria-hidden="true">⌄</span></span></summary>
+          <div class="submenu">
+            <div class="menu-disabled" aria-disabled="true"><span>アプリ割引率設定</span><small>準備中</small></div>
+            <div class="menu-disabled" aria-disabled="true"><span>ノベルティ設定</span><small>準備中</small></div>
+            <div class="menu-disabled" aria-disabled="true"><span>ページカラー設定</span><small>準備中</small></div>
+          </div>
+        </details>
+        <a id="customer-page-link" class="menu-link" href="./index.html" target="_blank" rel="noopener noreferrer"><span>お客様ページを見る</span><span aria-hidden="true">↗</span></a>
+        <div class="menu-disabled" aria-disabled="true"><span>ログアウト</span><small>認証接続後</small></div>
+      </div>
+    </section>
+    <section class="card navpanel" id="product-qr-panel" hidden aria-label="商品QRダウンロード見本">
+      <div class="panel-top"><h2>商品QRダウンロード</h2><button type="button" class="small-back" id="product-back">← 戻る</button></div>
+      <p class="muted">現在は仮の商品を使った選択・印刷プレビューです。商品別URLが発行される管理機能を接続した後に、本番QRが有効になります。</p>
+      <label class="select-all"><input type="checkbox" id="product-check-all"> <strong>ALL｜すべて選択</strong></label>
+      <div id="products-selection-list" class="product-selection"></div>
+      <p class="muted" id="product-selected-count" aria-live="polite">選択数：0商品</p>
+      <div class="preview-actions">
+        <button type="button" class="preview-action" id="preview-light" disabled>ホワイト案でプレビュー</button>
+        <button type="button" class="preview-action secondary" id="preview-dark" disabled>アクセント案でプレビュー</button>
+      </div>
+      <p class="muted">A4に10枚（2列×5段）、1枚は91×55mm。実際の商品QRの一括ダウンロードは商品管理接続後に対応します。</p>
     </section>
     <section class="card" aria-label="QR読み取り">
       <h2>購入QR読み取り</h2>
@@ -75,22 +90,57 @@
     </section>
     <footer>POWERED BY <strong>MY EXPO BAG</strong>　v1.0.1</footer>
   </main>
+  <script src="./config.js"></script>
   <script>
     (()=>{
       const menu=document.getElementById('menu-panel');
-      const settings=document.getElementById('settings-panel');
       const btnMenu=document.getElementById('menu-btn');
-      const btnSettings=document.getElementById('settings-btn');
-      const toggle=(target,ownButton,other,otherButton)=>{
-        const show=target.hidden;
-        target.hidden=!show;ownButton.setAttribute('aria-expanded',String(show));
-        other.hidden=true;otherButton.setAttribute('aria-expanded','false');
+      const qrPanel=document.getElementById('product-qr-panel');
+      const btnQr=document.getElementById('products-qr-menu');
+      const all=document.getElementById('product-check-all');
+      const list=document.getElementById('products-selection-list');
+      const count=document.getElementById('product-selected-count');
+      const previewBtns=[document.getElementById('preview-light'),document.getElementById('preview-dark')];
+      const data=(window.MEB_CONFIG?.products||[]).filter(p=>p&&p.id&&p.name);
+      const yen=n=>'¥'+Math.round(n).toLocaleString('ja-JP');
+      const currentSelected=()=>[...list.querySelectorAll('input[data-id]:checked')].map(el=>el.dataset.id);
+      const sync=()=>{
+        const n=currentSelected().length;
+        count.textContent=`選択数：${n}商品`;
+        all.checked=data.length>0&&n===data.length;
+        all.indeterminate=n>0&&n<data.length;
+        previewBtns.forEach(b=>{b.disabled=n===0;});
       };
-      btnMenu.addEventListener('click',()=>toggle(menu,btnMenu,settings,btnSettings));
-      btnSettings.addEventListener('click',()=>toggle(settings,btnSettings,menu,btnMenu));
-      // Keep the current brand slug when it is supplied, so the link is already
-      // compatible with the future brand-specific page routing. The current
-      // customer app does not yet filter its data by this parameter.
+      data.forEach(p=>{
+        const row=document.createElement('label');row.className='product-row';
+        const input=document.createElement('input');input.type='checkbox';input.dataset.id=p.id;
+        const text=document.createElement('span');const title=document.createElement('strong');title.textContent=p.name;
+        const detail=document.createElement('small');const price=Number.isFinite(p.eventPrice)&&p.eventPrice<p.price?p.eventPrice:p.price;
+        detail.textContent=`ID: ${p.id} ／ ${yen(price)}`;
+        text.append(title,detail);row.append(input,text);list.append(row);
+        input.addEventListener('change',sync);
+      });
+      all.addEventListener('change',()=>{list.querySelectorAll('input[data-id]').forEach(el=>el.checked=all.checked);sync()});
+      btnMenu.addEventListener('click',()=>{
+        const opened=menu.hidden;
+        menu.hidden=!opened;qrPanel.hidden=true;
+        btnQr.setAttribute('aria-expanded','false');btnMenu.setAttribute('aria-expanded',String(opened));
+      });
+      btnQr.addEventListener('click',()=>{
+        menu.hidden=true;qrPanel.hidden=false;btnQr.setAttribute('aria-expanded','true');btnMenu.setAttribute('aria-expanded','false');
+        qrPanel.scrollIntoView({block:'start',behavior:'smooth'});
+      });
+      document.getElementById('product-back').addEventListener('click',()=>{
+        qrPanel.hidden=true;menu.hidden=false;btnQr.setAttribute('aria-expanded','false');btnMenu.setAttribute('aria-expanded','true');
+      });
+      previewBtns.forEach((btn,i)=>btn.addEventListener('click',()=>{
+        const ids=currentSelected();if(!ids.length)return;
+        const url=new URL('./pricecards.html',location.href);
+        url.searchParams.set('ids',ids.join(','));url.searchParams.set('style',i?'accent':'white');
+        window.open(url.href,'_blank','noopener,noreferrer');
+      }));
+      sync();
+      // Customer app brand routing will be activated after tenant data is connected.
       const brand=new URLSearchParams(location.search).get('brand');
       if(brand && /^[a-z0-9-]{1,48}$/.test(brand)){
         const url=new URL('./index.html',location.href);url.searchParams.set('brand',brand);

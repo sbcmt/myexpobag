@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MY EXPO BAG｜商品プライスカード（デザイン確認）</title>
+<style>
+  :root{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",Arial,sans-serif;color:#162530}
+  *{box-sizing:border-box}body{margin:0;background:#e9edf0}
+  .toolbar{background:#10202a;color:white;padding:14px max(16px,env(safe-area-inset-right,0px));display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .toolbar h1{font-size:16px;margin:0}.toolbar p{font-size:12px;margin:5px 0 0;color:#c5d2d9;line-height:1.5}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{border:1px solid #69818d;background:#1b3c4e;color:white;border-radius:8px;padding:10px 12px;font-weight:650;cursor:pointer}
+  .actions button.active{background:#fff;color:#152a35}
+  .notice{text-align:center;padding:10px 14px;font-size:12px;color:#576772;line-height:1.65}
+  .paper{width:210mm;min-height:297mm;margin:16px auto 22px;background:#fff;box-shadow:0 8px 30px #17293624}
+  .sheet{width:210mm;height:297mm;padding:7mm 12mm;display:grid;grid-template-columns:repeat(2,91mm);grid-template-rows:repeat(5,55mm);column-gap:4mm;row-gap:2mm;break-after:page;page-break-after:always}
+  .sheet:last-child{break-after:auto;page-break-after:auto}
+  .pricecard{width:91mm;height:55mm;border:.25mm solid #c9d3d8;position:relative;overflow:hidden;display:flex;background:#fff;break-inside:avoid}
+  .pricecard::before{content:"SAMPLE";position:absolute;right:-3mm;bottom:7mm;z-index:2;font:700 23px Arial,sans-serif;color:#718b9526;transform:rotate(-29deg);pointer-events:none}
+  .qr-area{width:31mm;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3mm 2mm;gap:1mm}
+  .qr-area img{width:25.5mm;height:25.5mm;image-rendering:pixelated}
+  .scan-note{font-size:6pt;color:#65767c;white-space:nowrap;text-align:center}
+  .information{min-width:0;flex:1;padding:3.5mm 3mm 2.5mm 0;display:flex;flex-direction:column;gap:1mm}
+  .brand{font-size:7.4pt;font-weight:800;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item{font-size:10pt;font-weight:800;line-height:1.18;word-break:break-all;max-height:23mm;overflow:hidden}
+  .meta{font-size:7pt;color:#536470;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .price{margin-top:auto;min-height:12mm;display:flex;flex-direction:column;justify-content:end;align-items:flex-start;gap:.5mm}
+  .normal{font-size:7pt;color:#6c7a80}
+  .normal.strike{text-decoration:line-through}
+  .now{font-size:13.5pt;font-weight:800;letter-spacing:-.025em;white-space:nowrap}
+  .now.event{color:#b42b28}.now small{font-size:7pt;font-weight:700;margin-right:1.5mm}
+  .pricecard.accent{border-color:#afbec6}
+  .pricecard.accent .qr-area{border-right:.55mm solid #2bc3cf}
+  .pricecard.accent .information{padding-top:10mm}
+  .pricecard.accent .brand{position:absolute;left:0;top:0;width:100%;padding:2mm 3mm;background:#12242f;color:#fff;letter-spacing:.06em}
+  .pricecard.accent .scan-note{color:#58636a}
+  .pricecard.accent .now.event{color:#bf3330}
+  @page{size:A4 portrait;margin:0}
+  @media print{body{background:white}.toolbar,.notice{display:none!important}.paper{margin:0;box-shadow:none;width:210mm;min-height:297mm}.sheet{page-break-after:always}.sheet:last-child{page-break-after:auto}}
+  @media screen and (max-width:850px){.paper{transform-origin:top left;transform:scale(.6);margin:10px 0 -100mm 2vw}}
+  @media screen and (max-width:480px){.paper{transform:scale(.43);margin-bottom:-166mm}}
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <div><h1>MY EXPO BAG｜プライスカード</h1><p>A4縦・名刺サイズ91×55mm・10SKU／枚<br>デモ用商品QRです。正式な商品URLとは連携していません。</p></div>
+  <div class="actions"><button id="white" class="active" type="button">ホワイト</button><button id="accent" type="button">アクセント</button><button id="print" type="button">印刷／PDF保存</button></div>
+</header>
+<p class="notice">※ 印刷時は用紙A4・倍率100%・余白なしで確認してください。画面はデザイン見本です。</p>
+<div id="paper-output"></div>
+<script src="./config.js"></script><script src="./qr.js"></script>
+<script>
+(()=>{
+  const cfg=window.MEB_CONFIG;
+  if(!cfg){document.getElementById('paper-output').textContent='商品データが見つかりません';return}
+  const params=new URLSearchParams(location.search);
+  const allIds=new Set(cfg.products.map(p=>p.id));
+  const selection=(params.get('ids')||'').split(',').filter(id=>allIds.has(id));
+  const products=(selection.length?cfg.products.filter(p=>selection.includes(p.id)):cfg.products);
+  let style=params.get('style')==='accent'?'accent':'white';
+  const output=document.getElementById('paper-output');
+  const yen=n=>'¥'+Math.round(n).toLocaleString('ja-JP');
+  const lines=products.flatMap(p=>{
+    const variants=Array.isArray(p.variants)&&p.variants.length?p.variants:[{code:'',name:''}];
+    return variants.map(variant=>({product:p,variant}));
+  });
+  const makeQr=(value)=>{
+    const q=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);
+    q.addData(value);q.make();
+    const count=q.getModuleCount(),margin=4,canvas=document.createElement('canvas');
+    canvas.width=canvas.height=(count+margin*2)*6;
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#111';
+    for(let r=0;r<count;r++)for(let c=0;c<count;c++)if(q.isDark(r,c))ctx.fillRect((c+margin)*6,(r+margin)*6,6,6);
+    return canvas.toDataURL('image/png');
+  };
+  const cardFor=({product:p,variant:v})=>{
+    const el=document.createElement('article');el.className='pricecard '+style;
+    const qr=document.createElement('div');qr.className='qr-area';
+    const img=document.createElement('img');
+    // These demonstration URLs are intentionally inactive. Real product deep links need brand routing.
+    const exampleUrl='https://example.com/meb-demo/?product='+encodeURIComponent(p.id)+(v.code?'&color='+encodeURIComponent(v.code):'');
+    img.src=makeQr(exampleUrl);img.alt='デザイン見本用のQR（本番では使用できません）';
+    const note=document.createElement('div');note.className='scan-note';note.textContent='商品ページQR（見本）';qr.append(img,note);
+    const info=document.createElement('div');info.className='information';
+    const brand=document.createElement('div');brand.className='brand';brand.textContent=cfg.brand.name;
+    const name=document.createElement('div');name.className='item';name.textContent=p.name;
+    const id=document.createElement('div');id.className='meta';id.textContent='ID: '+p.id+(v.code?' / '+v.code:'');
+    const color=document.createElement('div');color.className='meta';color.textContent=v.name?'カラー: '+v.name:'カラー: 指定なし';
+    const prices=document.createElement('div');prices.className='price';
+    const event=Number.isFinite(p.eventPrice)&&p.eventPrice>=0&&p.eventPrice<p.price;
+    if(event){
+      const normal=document.createElement('div');normal.className='normal strike';normal.textContent='通常 '+yen(p.price);prices.append(normal);
+    }
+    const now=document.createElement('div');now.className='now'+(event?' event':'');
+    if(event){const label=document.createElement('small');label.textContent='展示会';now.append(label)}
+    now.append(document.createTextNode(yen(event?p.eventPrice:p.price)));
+    prices.append(now);info.append(brand,name,id,color,prices);el.append(qr,info);return el;
+  };
+  const render=()=>{
+    output.replaceChildren();
+    const cards=lines.length?lines:[];
+    for(let start=0;start<cards.length;start+=10){
+      const paper=document.createElement('div');paper.className='paper';
+      const sheet=document.createElement('div');sheet.className='sheet';
+      cards.slice(start,start+10).forEach(c=>sheet.append(cardFor(c)));
+      paper.append(sheet);output.append(paper);
+    }
+    ['white','accent'].forEach(t=>document.getElementById(t).classList.toggle('active',style===t));
+  };
+  ['white','accent'].forEach(t=>document.getElementById(t).addEventListener('click',()=>{style=t;render()}));
+  document.getElementById('print').addEventListener('click',()=>window.print());
+  render();
+})();
+</script>
+</body>
+</html>
