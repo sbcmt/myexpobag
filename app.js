@@ -134,7 +134,7 @@
     const logo = cfg.brand.logoUrl || '';
     const safeLogo = (/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(logo) && logo.length <= 70000) ? logo : fileSafe(logo);
     const icon = safeLogo ? `<img src="${esc(safeLogo)}" alt=""/>` : esc(cfg.brand.name.trim().slice(0,1)||'B');
-    $('#site-header').innerHTML=`<div class="header-inner"><div class="brand-left"><div class="brand-icon">${icon}</div><div style="min-width:0"><div class="brand-wordmark">${esc(cfg.brand.name)}</div><div class="brand-caption">${esc(cfg.event.name)}</div></div></div><button class="header-action" data-nav="#bag" aria-label="MY BAGを開く" style="position:relative">${ICONS.bag}${itemCount()?`<span class="header-count">${itemCount()}</span>`:''}</button></div>`;
+    $('#site-header').innerHTML=`<div class="header-inner"><div class="brand-left"><div class="brand-icon">${icon}</div><div style="min-width:0"><div class="brand-wordmark">${esc(cfg.brand.name)}</div>${String(cfg.event.name||'').trim()?`<div class="brand-caption">${esc(cfg.event.name)}</div>`:''}</div></div><button class="header-action" data-nav="#bag" aria-label="MY BAGを開く" style="position:relative">${ICONS.bag}${itemCount()?`<span class="header-count">${itemCount()}</span>`:''}</button></div>`;
   };
   const renderPreview = () => {
     const q=new URLSearchParams(location.search);if(q.get('preview')!=='1') return '';

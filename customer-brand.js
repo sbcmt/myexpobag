@@ -47,7 +47,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
     brand:{id:slug,name,description:'',logoUrl:typeof handle.logoUrl==='string'?handle.logoUrl:'',
       themePreset:typeof brandTheme.preset==='string'?brandTheme.preset:'natural',
       customColors:brandTheme.customColors||{}},
-    event:{id:slug,name:'展示会',accentLabel:'MY EXPO BAG',appPurchaseDiscountPercent:
+    event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',appPurchaseDiscountPercent:
       Number.isFinite(Number(event.appPurchaseDiscountPercent))?Number(event.appPurchaseDiscountPercent):0,
       banner:safeBanner||{enabled:false}},
     categories,products,bundles,

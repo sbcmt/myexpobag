@@ -95,7 +95,8 @@ $('brand-form').addEventListener('submit',async event=>{
     batch.update(doc(db,'brandHandles',brandRecord.slug),{displayName,logoUrl:iconValue});
     await batch.commit();
     brandRecord={...brandRecord,displayName,logoUrl:iconValue};
-    showStatus('brand-status','ブランド名・アイコンを保存しました。お客様ページにも反映されます。','ok');
+    showStatus('brand-status','保存しました。管理画面へ戻ります。','ok');
+    location.assign(new URL('./admin.html',location.href).href);
   }catch(error){showStatus('brand-status',explain(error),'error');}
   finally{btn.disabled=false;}
 });
