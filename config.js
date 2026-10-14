@@ -44,7 +44,7 @@ window.MEB_CONFIG = {
   bundles: [
     { id: 'outdoor-duo', name: 'LIGHT & TABLE', subtitle: '灯りとテーブルを一緒に。', productIds: ['lantern', 'table'], discountPercent: 10 },
     { id: 'relax-kit', name: 'RELAX KIT', subtitle: 'チェアとマグで、くつろぎの時間。', productIds: ['chair', 'mug'], discountPercent: 8 },
-    { id: 'day-trip', name: 'DAY TRIP SET', subtitle: 'お出かけをスマートに。', productIds: ['tote', 'bottle'], discountPercent: 12 },
+    { id: 'day-trip', name: 'DAY TRIP SET', subtitle: 'お出かけをスマートに。', productIds: ['tote', 'bottle'], discountPercent: 0 }, // 割引なしの組み合わせ表示テスト
   ],
   novelty: {
     enabled: true,

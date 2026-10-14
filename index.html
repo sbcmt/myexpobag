@@ -13,10 +13,39 @@
   <meta name="apple-mobile-web-app-title" content="MY EXPO BAG"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
-  <link rel="stylesheet" href="./styles.css"/>
-  <script defer src="./config.js"></script>
-  <script defer src="./qr.js"></script>
-  <script defer src="./app.js"></script>
+  <!-- Always check the current publication on launch. No service-worker asset cache. -->
+  <script>
+    (async () => {
+      // Build ID is independent of the displayed app version (always v1.0.1).
+      let build='20261014-recommend-refresh-01';
+      try {
+        const response=await fetch('./release.json?nocache='+Date.now(),{cache:'no-store'});
+        if(response.ok){
+          const release=await response.json();
+          if(typeof release.build==='string' && /^[a-zA-Z0-9._-]{1,80}$/.test(release.build)) build=release.build;
+        }
+      } catch (_) { /* file:// preview or temporary offline: use bundled build */ }
+      window.MEB_CURRENT_BUILD=build;
+      const style=document.createElement('link');
+      style.rel='stylesheet';
+      style.href='./styles.css?build='+encodeURIComponent(build);
+      document.head.appendChild(style);
+      if(document.readyState==='loading') await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
+      for(const filename of ['config.js','qr.js','app.js']){
+        try {
+          await new Promise((resolve,reject)=>{
+            const script=document.createElement('script');
+            script.src='./'+filename+'?build='+encodeURIComponent(build);
+            script.onload=resolve;script.onerror=()=>reject(new Error(filename));
+            document.body.appendChild(script);
+          });
+        } catch(error){
+          document.getElementById('view').textContent='読み込みに失敗しました。通信環境をご確認のうえ、ページを開き直してください。';
+          break;
+        }
+      }
+    })();
+  </script>
 </head>
 <body>
   <div class="app-shell" id="app">

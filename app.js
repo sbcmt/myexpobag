@@ -25,6 +25,11 @@
   const unitPrice = p => Number.isFinite(p.eventPrice) && p.eventPrice >= 0 && p.eventPrice < p.price ? p.eventPrice : p.price;
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
   const state = { category:'all', cart:{}, order:null, modalOpen:false, previewTheme:null, toastTimer:null };
+  const activeBuild = window.MEB_CURRENT_BUILD || '20261014-recommend-refresh-01';
+  let lastReleaseCheck = Date.now();
+  let releaseCheckBusy = false;
+  let pendingReleaseBuild = '';
+  const releaseCheckIntervalMs = 45_000;
 
   const ensureCart = () => {
     try {
@@ -104,10 +109,6 @@
     const banner=cfg.event.banner;
     const items=cfg.products.filter(p => state.category==='all'||p.categoryId===state.category);
     const categories = [{id:'all',name:'すべて'},...cfg.categories];
-    const bundleCards=(cfg.bundles||[]).slice(0,3).filter(b=>b.productIds.every(byId)).map(b=>{
-      const ptotal=b.productIds.reduce((sum,id)=>sum+unitPrice(byId(id)),0);
-      return `<div class="bundle-card"><div><div class="bundle-name">${esc(b.name)}</div><div class="bundle-sub">${esc(b.subtitle||b.productIds.map(id=>byId(id).name).join(' ＋ '))}</div><div class="bundle-price">${yen(ptotal-Math.round(ptotal*b.discountPercent/100))} <span style="font-size:10px;font-weight:500;color:#99a098">税込</span></div></div><div style="text-align:right"><div class="bundle-off">セット ${esc(b.discountPercent)}% OFF</div><div style="margin-top:10px"><button class="bundle-add" data-add-bundle="${esc(b.id)}">BAGに追加 +</button></div></div></div>`;
-    }).join('');
     $('#view').innerHTML=`
       <section class="intro"><div class="eyebrow">${esc(cfg.event.accentLabel)}</div><h1 class="intro-title">見つけた「好き」を、<br/>ひとつのBAGに。</h1><p class="intro-description">${esc(cfg.brand.description)}<br/>気になるアイテムを選んで、会場で受け取ろう。</p></section>
       ${banner&&banner.enabled?`<a class="hero-banner" href="#product/${encodeURIComponent(banner.productId)}" aria-label="${esc(banner.title)}"><div class="hero-bg"></div>${banner.imageUrl&&fileSafe(banner.imageUrl)?`<img class="hero-product-image" src="${esc(fileSafe(banner.imageUrl))}" alt=""/>`:'<div class="hero-art"></div>'}<div class="hero-copy"><div style="font-size:10px;letter-spacing:1.5px;font-weight:800">${esc(banner.eyebrow)}</div><h2>${esc(banner.title)}</h2><p>${esc(banner.body||'')}</p><span class="hero-more">詳しく見る &nbsp;→</span></div></a>`:''}
@@ -115,15 +116,51 @@
       <section><div class="section-pad section-heading"><div><span class="eyebrow">CURATED COLLECTION</span><h2 class="section-title">ITEMS<span style="font-size:13px;color:#bdc5bd"> .</span></h2></div><span class="section-meta">${items.length} ITEMS</span></div>
       <div class="chips" role="group" aria-label="商品カテゴリ">${categories.map(c=>`<button class="chip ${state.category===c.id?'active':''}" data-category="${esc(c.id)}" aria-pressed="${state.category===c.id}">${esc(c.name)}</button>`).join('')}</div>
       <div class="section-pad"><div class="product-grid">${items.length?items.map(cardProduct).join(''):'<p>該当する商品がありません。</p>'}</div></div></section>
-      ${bundleCards?`<section class="bundles"><div class="section-heading"><div><div class="eyebrow">BETTER TOGETHER</div><h2 class="section-title">SET DEALS<span style="font-size:13px;color:#bdc5bd"> .</span></h2></div><span class="section-meta">最大3種類</span></div><p style="font-size:11px;color:#839085;line-height:1.8;margin:0 0 18px">対象商品をBAGに入れると、セット割引が自動で適用されます。</p><div class="bundle-stack">${bundleCards}</div></section>`:''}
       ${cfg.novelty.enabled?`<aside class="gift-info"><div class="gift-icon" aria-hidden="true">✦</div><div><div class="gift-text">${yen(cfg.novelty.minSpend)}以上のご購入でノベルティ対象</div><div class="gift-small">${esc(cfg.novelty.name)}をご用意。${esc(cfg.novelty.note)}</div></div></aside>`:''}
       <div class="float-space"></div>`;
   };
+  // Only suggest sets that actually include the open product. The comparison baseline
+  // is the sum of prices when bought separately at this event (including EXPO prices).
+  // A recommended pair is useful even without an additional set discount.
+  // Missing, empty or null discountPercent means 0%; never manufacture a discount.
+  const bundleRate = b => b.discountPercent == null || b.discountPercent === '' ? 0 : Number(b.discountPercent);
+  const eligibleBundles = productId => (cfg.bundles||[]).slice(0,3).filter(b =>
+    Array.isArray(b.productIds) && b.productIds.length >= 2 &&
+    b.productIds.includes(productId) && b.productIds.every(byId) &&
+    Number.isFinite(bundleRate(b)) && bundleRate(b) >= 0 && bundleRate(b) <= 100
+  );
+  const bundleRequired = b => {
+    const req={};b.productIds.forEach(id=>{req[id]=(req[id]||0)+1;});return req;
+  };
+  const bundleNeed = b => Object.entries(bundleRequired(b)).filter(([id,qty]) => (state.cart[id]||0) < qty);
+  const renderRecommendation = (b,p) => {
+    const products=b.productIds.map(byId);
+    const individualTotal=products.reduce((sum,item)=>sum+unitPrice(item),0);
+    const discountPercent=bundleRate(b);
+    const saving=Math.round(individualTotal*discountPercent/100);
+    const discounted=saving>0;
+    const setPrice=individualTotal-saving;
+    const missing=bundleNeed(b);
+    const allInBag=missing.length===0;
+    const buttonText=allInBag?'MY BAGで合計を確認':
+      (missing.length < Object.keys(bundleRequired(b)).length?'足りない商品をBAGに追加':'この組み合わせをBAGに追加');
+    return `<article class="recommend-card" aria-label="${esc(b.name)} の組み合わせ提案">
+      <div class="recommend-topline"><span class="recommend-badge">${discounted?'まとめ買いでお得':'おすすめの組み合わせ'}</span><span class="recommend-title">${esc(b.name)}</span></div>
+      <div class="recommend-products">${products.map((item,index)=>`${index?'<span class="recommend-plus" aria-hidden="true">＋</span>':''}<div class="recommend-item"><div class="recommend-thumb"><img src="${esc(fileSafe(item.image))}" alt="" loading="lazy"/></div><span class="recommend-item-name">${esc(item.name)}</span></div>`).join('')}</div>
+      ${discounted ? `<div class="recommend-comparison"><span>別々に買うと <s>${yen(individualTotal)}</s></span><span class="recommend-arrow" aria-hidden="true">→</span><strong>セット価格 ${yen(setPrice)}</strong></div>
+      <div class="recommend-savings"><span class="recommend-savings-label">別々に買うより</span><strong>${yen(saving)} お得！</strong></div>` : `<div class="recommend-comparison recommend-comparison-regular"><span>${products.length}点で合計</span><strong>${yen(individualTotal)}</strong></div>`}
+      <p class="recommend-note">${esc(b.subtitle||'')}<br/>${discounted?'展示会限定価格がある商品は、その価格を基準に計算しています。':'各商品の展示会限定価格がある場合は、その価格で合計しています。セット追加割引はありません。'}</p>
+      ${allInBag?`<button class="recommend-button" data-nav="#bag">${buttonText} →</button>`:`<button class="recommend-button" data-add-bundle="${esc(b.id)}">${buttonText} ＋</button>`}
+    </article>`;
+  };
   const renderDetail=p=>{
+    const suggestions=eligibleBundles(p.id).map(b=>renderRecommendation(b,p)).filter(Boolean).join('');
     $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button>
       <div class="detail-cover"><img src="${esc(fileSafe(p.image))}" alt="${esc(p.name)}"/></div><div class="detail-en">${esc(p.subtitle)}</div><h1 class="detail-name">${esc(p.name)}</h1><div class="detail-price">${unitPrice(p)<p.price?`<span class="detail-original">${yen(p.price)}</span>`:''}${yen(unitPrice(p))} <span style="font-size:11px;font-weight:500">税込</span></div>
       ${unitPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}<p class="detail-description">${esc(p.description||'')}</p>
-      <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true">＋　MY BAGに追加する</button><div class="notice">気になる商品をBAGに追加して、まとめて購入QRを表示できます。代金のお支払いは出展者ブースで行います。</div></div>`;
+      <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true">＋　MY BAGに追加する</button>
+      ${suggestions?`<section class="recommendations" aria-label="おすすめの組み合わせ"><div class="recommend-section-header"><span class="eyebrow">BETTER TOGETHER</span><h2>この商品と一緒にいかがですか？</h2><p>一緒に使いたいアイテムを、組み合わせてご紹介します。</p></div><div class="recommend-list">${suggestions}</div></section>`:''}
+      <div class="notice">気になる商品をBAGに追加して、まとめて購入QRを表示できます。代金のお支払いは出展者ブースで行います。</div></div>`;
   };
   const renderBag=()=>{
     const totals=totalCalc();
@@ -177,11 +214,13 @@
     saveCart();render();
   }
   function addBundle(id){
-    const b=(cfg.bundles||[]).slice(0,3).find(x=>x.id===id);if(!b)return;
-    const req={};b.productIds.forEach(x=>req[x]=(req[x]||0)+1);
-    if(Object.entries(req).some(([pid,q])=>(state.cart[pid]||0)+q>20)){toast('商品は各20点まで追加できます');return;}
-    Object.entries(req).forEach(([pid,q])=>state.cart[pid]=(state.cart[pid]||0)+q);
-    saveCart();render();toast('セットをMY BAGに追加しました');
+    const b=(cfg.bundles||[]).slice(0,3).find(x=>x.id===id);
+    if(!b || !Array.isArray(b.productIds) || !b.productIds.every(byId))return;
+    const missing=bundleNeed(b);
+    if(!missing.length){nav('#bag');return;}
+    if(missing.some(([pid,qty])=>qty>20)){toast('商品は各20点まで追加できます');return;}
+    missing.forEach(([pid,qty])=>{state.cart[pid]=qty;});
+    saveCart();render();toast('おすすめの組み合わせをMY BAGに追加しました');
   }
   function showCheckout(){
     if(!itemCount())return;
@@ -227,5 +266,55 @@
   document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();submitCheckout(event.target);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});
   window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0,behavior:'instant'});});
+  // GitHub Pages / home-screen launch: check a tiny release file instead of
+  // downloading product images or all app assets in a loop. No Service Worker
+  // caches are registered by this app. Updates roll in when returning to the app.
+  const showReleaseNotice = () => {
+    let notice = $('#release-notice');
+    if (!notice) {
+      notice=document.createElement('div');
+      notice.id='release-notice';
+      notice.className='release-notice';
+      notice.setAttribute('role','status');
+      notice.innerHTML='<span>新しい画面が公開されました</span><button type="button" data-apply-release>更新する</button>';
+      document.body.appendChild(notice);
+    }
+    notice.hidden=false;
+  };
+  const applyRelease = () => {
+    if (!pendingReleaseBuild) return;
+    const nextUrl=new URL(location.href);
+    nextUrl.searchParams.set('update',pendingReleaseBuild);
+    window.location.replace(nextUrl.href);
+  };
+  const checkRelease = async () => {
+    if (releaseCheckBusy || document.visibilityState==='hidden' || !navigator.onLine) return;
+    if (Date.now()-lastReleaseCheck<releaseCheckIntervalMs) return;
+    lastReleaseCheck=Date.now();
+    releaseCheckBusy=true;
+    try {
+      const response=await fetch('./release.json?nocache='+Date.now(),{cache:'no-store'});
+      if(!response.ok) return;
+      const release=await response.json();
+      if(typeof release.build!=='string' || !/^[a-zA-Z0-9._-]{1,80}$/.test(release.build)) return;
+      if(release.build!==activeBuild){
+        pendingReleaseBuild=release.build;
+        // Do not discard customer information entered in a modal or an open QR.
+        if(state.modalOpen || state.order || location.hash==='#qr') showReleaseNotice();
+        else applyRelease();
+      }
+    } catch (error) {
+      // A temporary network problem must not interrupt shopping.
+      console.debug('更新チェックをスキップしました',error);
+    } finally {releaseCheckBusy=false;}
+  };
+  document.addEventListener('click', event=>{
+    if(event.target.closest('[data-apply-release]')) applyRelease();
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkRelease();});
+  window.addEventListener('pageshow',()=>checkRelease());
+  window.addEventListener('focus',()=>checkRelease());
+  window.addEventListener('online',()=>checkRelease());
+  setInterval(checkRelease,120_000);
   ensureCart();render();
 })();
