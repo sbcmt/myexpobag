@@ -46,7 +46,7 @@
   <header class="header">
     <div class="brand">
       <img src="./myexpobag_admin_icon.png" alt="管理ページアイコン">
-      <div><h1>MY EXPO BAG 管理</h1><small>出展者・販売スタッフ用</small></div>
+      <div><h1>MY EXPO BAG 管理</h1><small id="current-brand-name">出展者・販売スタッフ用</small></div>
     </div>
     <div class="controls">
       <button type="button" id="menu-btn" aria-controls="menu-panel" aria-expanded="false">☰ メニュー</button>
@@ -146,15 +146,10 @@
         window.open(url.href,'_blank','noopener,noreferrer');
       }));
       sync();
-      // Customer app brand routing will be activated after tenant data is connected.
-      const brand=new URLSearchParams(location.search).get('brand');
-      if(brand && /^[a-z0-9-]{1,48}$/.test(brand)){
-        const url=new URL('./index.html',location.href);url.searchParams.set('brand',brand);
-        document.getElementById('customer-page-link').href=url.href;
-      }
+      // The customer link is set from the authenticated brand by admin-auth.js,
+      // never from a visitor-controlled URL parameter.
     })();
   </script>
-  <script src="./firebase-config.js"></script>
   <script type="module" src="./admin-auth.js"></script>
 </body>
 </html>
