@@ -36,13 +36,19 @@
     const codes=variantsOf(p).map(v=>v.code);
     return Math.min(...[...(codes.length?codes:[''])].map(code=>unitPrice(p,code)));
   };
-  const soldOut=p=>p.stock===0;
+  const variantStock=(p,code)=>selectedVariant(p,code)?.stock??null;
+  const allVariantsSoldOut=p=>variantsOf(p).length>0 && variantsOf(p).every(v=>v.stock===0);
+  const soldOut=p=>p.stock===0||allVariantsSoldOut(p);
   const isUnavailable=p=>soldOut(p);
-  const soldOutLines=()=>cartLines().filter(line=>soldOut(line.product));
+  const soldOutLines=()=>cartLines().filter(line=>soldOut(line.product)||variantStock(line.product,line.color)===0);
   const checkoutStockError=()=>{
     if(soldOutLines().length)return 'この商品は完売しました。MY BAGから削除してください。';
     const qty=cartQtyByProduct();
     if(cfg.products.some(p=>p.stock!==null && p.stock!==undefined && (qty[p.id]||0)>p.stock))return 'MY BAGの商品は在庫が不足しています。数量を減らしてください。';
+    for(const line of cartLines()){
+      const available=variantStock(line.product,line.color);
+      if(available!==null && line.qty>available)return '選択されたバリエーションの在庫が不足しています。数量を減らしてください。';
+    }
     return '';
   };
   const releaseText=p=>p.preorder&&p.releaseMonth&&['上旬','中旬','下旬'].includes(p.releasePeriod)?`${p.releaseMonth}月${p.releasePeriod}予定`:'';
@@ -252,7 +258,7 @@
       <h1 class="detail-name">${esc(p.name)}</h1>
       <div class="detail-price">${unitPrice(p,color)<normalPrice(p,color)?`<span class="detail-original">${yen(normalPrice(p,color))}</span>`:''}${yen(unitPrice(p,color))} <span style="font-size:11px;font-weight:500">税込</span></div>
       ${soldOut(p)?'<div class="price-extra" style="color:#c02d30;font-weight:800">SOLD OUT</div>':p.preorder?`<div class="price-extra">受注予約・${esc(releaseText(p))}</div>`:unitPrice(p,color)<normalPrice(p,color)?'<div class="price-extra">展示会限定価格</div>':''}
-      ${variants.length?`<section class="variants"><p class="variant-label">バリエーションを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}">${esc(v.name)}</button>`).join('')}</div></section>`:''}
+      ${variants.length?`<section class="variants"><p class="variant-label">バリエーションを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}" ${v.stock===0?'disabled':''}>${esc(v.name)}${v.stock===0?'（完売）':''}</button>`).join('')}</div></section>`:''}
       <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true" ${soldOut(p)?'disabled':''}>${soldOut(p)?'SOLD OUT':'＋　MY BAGに追加する'}</button>
       ${suggestions?`<section class="recommendations" aria-label="おすすめの組み合わせ"><div class="recommend-section-header"><span class="eyebrow">BETTER TOGETHER</span><h2>この商品と一緒にいかがですか？</h2></div><div class="recommend-list">${suggestions}</div></section>`:''}
       <div class="notice">展示品をご覧になり、必要なバリエーションを選択してください。お支払いは出展者ブースで行います。</div></div>`;
@@ -346,10 +352,11 @@
   }
   function toast(message){const box=$('#toast');box.textContent=message;box.classList.add('show');clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>box.classList.remove('show'),1800);}
   function editCart(key,delta){
-    const {id}=fromSkuKey(key);if(!byId(id)||!Number.isInteger(delta))return;
+    const {id,color}=fromSkuKey(key);if(!byId(id)||!Number.isInteger(delta))return;
     const old=state.cart[key]||0;
     if(delta>0 && old>=20){toast('1商品・カラーあたり20点までです');return;}
     const prod=byId(id);if(delta>0 && prod && prod.stock!==null && prod.stock!==undefined && (cartQtyByProduct()[id]||0)>=prod.stock){toast('在庫数を超えるため追加できません');return;}
+    if(delta>0 && prod && variantStock(prod,color)!==null && old>=variantStock(prod,color)){toast('選択したバリエーションは在庫不足です');return;}
     const next=Math.max(0,Math.min(20,old+delta));
     if(next===0)delete state.cart[key];else state.cart[key]=next;
     saveCart();render();
@@ -369,6 +376,7 @@
     }
     const key=skuKey(id,color);
     if((state.cart[key]||0)>=20){toast('1商品・カラーあたり20点までです');return;}
+    if(variantStock(product,color)===0){toast('このバリエーションは完売しました');return;}
     editCart(key,1);toast('MY BAGに追加しました');if(goBag)nav('#bag');
   }
   function completeBundle(){
@@ -384,7 +392,7 @@
     }
     for(const [pid,qty] of missing){
       const key=skuKey(pid,state.selectedColors[pid]||'');
-      if((state.cart[key]||0)+qty>20 || (byId(pid).stock!==null && byId(pid).stock!==undefined && (cartQtyByProduct()[pid]||0)+qty>byId(pid).stock)){state.pendingBundle='';toast('在庫数を超えるため追加できません');return;}
+      if((state.cart[key]||0)+qty>20 || (byId(pid).stock!==null && byId(pid).stock!==undefined && (cartQtyByProduct()[pid]||0)+qty>byId(pid).stock) || (variantStock(byId(pid),state.selectedColors[pid]||'')!==null && (state.cart[key]||0)+qty>variantStock(byId(pid),state.selectedColors[pid]||''))){state.pendingBundle='';toast('在庫数を超えるため追加できません');return;}
     }
     for(const [pid,qty] of missing){
       const key=skuKey(pid,state.selectedColors[pid]||'');
@@ -570,14 +578,24 @@
   window.addEventListener('online',()=>checkRelease(true));
   setInterval(()=>checkRelease(),90_000);
   ensureCart();render();
-  if(typeof window.MEB_WATCH_PUBLIC_STOCK==='function')window.MEB_WATCH_PUBLIC_STOCK(quantities=>{
-    let becameSold=false;
-    for(const p of cfg.products){if(Object.prototype.hasOwnProperty.call(quantities,p.id)){
-      const previous=p.stock,now=quantities[p.id];
-      if(now===null || (Number.isInteger(now)&&now>=0))p.stock=now;
-      if(previous!==0 && p.stock===0 && cartLines().some(l=>l.id===p.id))becameSold=true;
-    }}
-    if(becameSold && !state.order)toast('MY BAGの商品が完売しました。内容をご確認ください。');
+  if(typeof window.MEB_WATCH_PUBLIC_STOCK==='function')window.MEB_WATCH_PUBLIC_STOCK(data=>{
+    const quantities=data.quantities||data;
+    const variantQuantities=data.variantQuantities||{};
+    const hadError=!!checkoutStockError();
+    for(const p of cfg.products){
+      if(Object.prototype.hasOwnProperty.call(quantities,p.id)){
+        const now=quantities[p.id];
+        if(now===null||(Number.isInteger(now)&&now>=0))p.stock=now;
+      }
+      for(const v of variantsOf(p)){
+        const key=p.id+'::'+v.code;
+        if(Object.prototype.hasOwnProperty.call(variantQuantities,key)){
+          const now=variantQuantities[key];
+          if(now===null||(Number.isInteger(now)&&now>=0))v.stock=now;
+        }
+      }
+    }
+    if(!hadError && checkoutStockError() && !state.order)toast('MY BAGの商品が完売・在庫不足になりました。内容をご確認ください。');
     render();
   });
   if(window.MEB_CATALOG_REFRESH_PENDING){window.MEB_CATALOG_REFRESH_PENDING=false;window.MEB_CATALOG_REFRESH();}

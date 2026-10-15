@@ -154,7 +154,7 @@ function variantRow(values={}){
  const codeBox=document.createElement('div');codeBox.className='subcode-input';const prefix=document.createElement('span');prefix.className='subcode-prefix';prefix.textContent=(trim($('product-id').value)||'商品ID')+'_';
  codeBox.append(prefix,codeInput);codeBox.classList.add('subcode-input');code.querySelector('label').after(codeBox);main.append(code);
  const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.className='danger';remove.addEventListener('click',()=>row.remove());main.append(remove);row.append(main);
- const prices=document.createElement('div');prices.className='cols';prices.append(make('バリエーション通常価格（任意）','variant-price','未設定なら商品価格',values.price));prices.append(make('バリエーション展示会特価（任意）','variant-event-price','未設定なら商品価格',values.eventPrice));row.append(prices);
+ const prices=document.createElement('div');prices.className='cols';prices.append(make('バリエーション通常価格（任意）','variant-price','未設定なら商品価格',values.price));prices.append(make('バリエーション展示会特価（任意）','variant-event-price','未設定なら商品価格',values.eventPrice));prices.append(make('バリエーション在庫数（任意）','variant-stock','空欄は無制限・0は完売',values.stock));row.append(prices);
  return row;
 }
 function refreshSubcodePrefixes(){const id=trim($('product-id').value)||'商品ID';for(const el of document.querySelectorAll('.subcode-prefix'))el.textContent=id+'_';}
@@ -174,7 +174,8 @@ function readVariants(id){
   const raw=trim(el.querySelector('.variant-code').value);
   const priceText=trim(el.querySelector('.variant-price').value);
   const eventText=trim(el.querySelector('.variant-event-price').value);
-  if(!name&&!raw&&!priceText&&!eventText)continue;
+  const stockText=trim(el.querySelector('.variant-stock').value);
+  if(!name&&!raw&&!priceText&&!eventText&&!stockText)continue;
   if(!name||!raw)throw Error('バリエーション名とサブコードはセットで入力してください。');
   if(raw.startsWith(id+'_'))throw Error('サブコード欄には商品IDを含めず、BKなど末尾だけを入力してください。');
   const code=raw.toUpperCase();
@@ -182,7 +183,8 @@ function readVariants(id){
   codes.add(code);
   const price=money(priceText,'バリエーション通常価格',true),eventPrice=money(eventText,'バリエーション展示会価格',true);
   if(price!==null&&eventPrice!==null&&eventPrice>=price)throw Error('バリエーション展示会価格は同じバリエーションの通常価格未満にしてください。');
-  result.push({code,name,price,eventPrice});
+  const stock=money(stockText,'バリエーション在庫数',true);
+  result.push({code,name,price,eventPrice,stock});
  }
  if(result.length>MAX_VARIANTS)throw Error('バリエーションは100件以内にしてください。');
  return result;
@@ -233,7 +235,8 @@ function productOf(fields){
   const variantEvent=money(v.eventPrice??'',id+'のバリエーション展示会特価',true);
   const effectivePrice=variantPrice??price;
   if(variantEvent!==null&&variantEvent>=effectivePrice)throw Error(id+'：バリエーション展示会特価は通常価格より小さくしてください。');
-  return {code:trim(v.code).toUpperCase(),name:trim(v.name),price:variantPrice,eventPrice:variantEvent};
+  const variantStock=money(v.stock??'',id+'のバリエーション在庫数',true);
+  return {code:trim(v.code).toUpperCase(),name:trim(v.name),price:variantPrice,eventPrice:variantEvent,stock:variantStock};
  });
  if(new Set(variants.map(v=>v.code)).size!==variants.length)throw Error(id+'：サブコードが重複しています。');
  const janCode=trim(fields.janCode??'');if(janCode&&!/^\d{8,14}$/.test(janCode))throw Error(id+'：JANコードは8〜14桁の数字にしてください。');
@@ -285,7 +288,7 @@ function editProduct(id){
  const p=products.get(id);if(!p)return;
  $('product-id').value=p.id;$('product-id').readOnly=true;$('product-name').value=p.name;
  $('product-category').value=p.categoryName;$('product-price').value=p.price;$('product-event-price').value=p.eventPrice??'';
- showVariants((p.variants||[]).map(v=>({code:trim(v.code).startsWith(p.id+'_')?trim(v.code).slice(p.id.length+1):v.code,name:v.name,price:v.price??'',eventPrice:v.eventPrice??''})));
+ showVariants((p.variants||[]).map(v=>({code:trim(v.code).startsWith(p.id+'_')?trim(v.code).slice(p.id.length+1):v.code,name:v.name,price:v.price??'',eventPrice:v.eventPrice??'',stock:v.stock??''}))); 
  $('product-jan').value=p.janCode||'';$('product-stock').value=p.stock??'';$('product-preorder').checked=p.preorder===true;toggleRelease();$('release-month').value=p.releaseMonth??'';$('release-period').value=p.releasePeriod||'';
  showCombos(existingCombos(p));$('product-active').checked=p.active!==false;
  pendingImage=null;$('product-image').value='';loadSavedImage(id,++imageRevision);
@@ -327,7 +330,7 @@ async function deleteProduct(id){
  catch(err){console.error(err);status('商品を削除できませんでした。',true);}finally{setBusy(false);}
 }
 // Japanese 19-column workbook. One parent ID can span multiple variation rows; old 15-column files are also readable.
-const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)','発売予定月(予約時必須)','発売予定時期(予約時必須)'];
+const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)','発売予定月(予約時必須)','発売予定時期(予約時必須)','バリエーション在庫数(任意)'];
 const sample=[
  ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','BK','カラー：ブラック','','','BG-002',500,'TB-003',300,'', ''],
  ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','KH','カラー：カーキ','','','BG-002',500,'TB-003',300,'', ''],
@@ -340,7 +343,7 @@ function spreadsheetRows(){
  for(const p of [...products.values()].sort((a,b)=>a.id.localeCompare(b.id,'ja'))){
   const variants=p.variants?.length?p.variants:[null];
   const combos=existingCombos(p);
-  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,p.stock??'',v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'',p.preorder?p.releaseMonth??'':'',p.preorder?p.releasePeriod||'':'']);
+  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,p.stock??'',v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'',p.preorder?p.releaseMonth??'':'',p.preorder?p.releasePeriod||'':'',v?.stock??'']);
  }
  return rows;
 }
@@ -353,7 +356,7 @@ function workbookFor(data){
   ['手順 3','カラーやサイズが複数ある場合、同じIDの行を増やしてサブコードとバリエーション項目を記入します。'],
   ['手順 4','サブコード欄には末尾だけ記入（例 BK）。商品ID LT-001 なら最終コード LT-001_BK になります。'],
   ['手順 5','必須：カテゴリ・ID・商品名・税込価格・表示/非表示。表示は1、非表示は0。'],
-  ['手順 6','在庫数の空欄は無制限、0は在庫0。受注予約を1にした行には発売予定月・発売予定時期が必須。'],
+  ['手順 6','商品全体の在庫数は全カラー共通の上限です。バリエーション在庫数はそれぞれの上限です。空欄は無制限、0は完売。'],
   ['手順 7','JANは先頭の0が消えないよう、文字列として入力してください。金額は税込の整数円です。'],
   ['手順 8','組合せ商品は最大3件まで。商品ID1〜3と、それぞれの組合せ割引金額を入力します。'],
   ['手順 9','同一商品のバリエーション行では組合せ設定も同じ内容で繰り返してください。'],
@@ -371,7 +374,8 @@ function workbookFor(data){
   ['JANコード(任意)','任意','8〜14桁の数値文字列。'],
   ['展示会特価(任意)','任意','通常の税込価格より安い整数円。'],
   ['受注予約(任意)','任意','1 = 予約 / 0または空欄 = 通常'],
-  ['在庫数(任意)','任意','整数。空欄 = 数量上限なし'],
+  ['在庫数(任意)','任意','全バリエーション合計の上限。空欄は上限なし。'],
+  ['バリエーション在庫数(任意)','任意','各サブコードの個別在庫。空欄は無制限、0は完売。'],
   ['サブコード(任意)','任意','末尾のみ（例 BK）。商品ID_ を自動で付けます。'],
   ['バリエーション項目(任意)','任意','例：カラー：ブラック、サイズ：M'],
   ['バリエーションごとの通常価格(任意)','任意','未入力なら商品の税込価格を使用'],
@@ -388,7 +392,7 @@ function workbookFor(data){
  const sheets=[['使い方',how],['商品登録',[headers,...data]],['入力例',[headers,...sample]],['項目説明',about]];
  for(const [name,rows] of sheets){
   const ws=X.utils.aoa_to_sheet(rows);ws['!cols']= name==='商品登録'||name==='入力例'?headers.map((h,i)=>({wch:Math.min(i===10?24:24,Math.max(13,h.length+2))})):[{wch:33},{wch:90}];
-  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:U'+Math.max(2,rows.length)};
+  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:V'+Math.max(2,rows.length)};
   X.utils.book_append_sheet(wb,ws,name);
  }
  return wb;
@@ -417,12 +421,12 @@ function parseWorkbook(bytes){
   let entry=entries.get(id);
   if(entry&&entry.key!==flatKey)throw Error((i+1)+'行目：同じIDの基本項目が他の行と異なります。');
   if(!entry){entry={key:flatKey,base,variants:[]};entries.set(id,entry);}
-  const sub=get(9),variantName=get(10),price=get(11),eventPrice=get(12);
-  if(sub||variantName||price||eventPrice){
+  const sub=get(9),variantName=get(10),price=get(11),eventPrice=get(12),variantStock=get(21);
+  if(sub||variantName||price||eventPrice||variantStock){
    if(!sub||!variantName)throw Error((i+1)+'行目：サブコード末尾とバリエーション名をセットで記入してください。');
    if(sub.startsWith(id+'_')&&!legacyTemplate)throw Error((i+1)+'行目：サブコード欄には商品IDを入れず、BKなど末尾だけを入力してください。');
    const code=(legacyTemplate&&sub.startsWith(id+'_')?sub.slice(id.length+1):sub).toUpperCase();
-   entry.variants.push({code,name:variantName,price,eventPrice});
+   entry.variants.push({code,name:variantName,price,eventPrice,stock:variantStock});
   }
  }
  if(entries.size>maxProducts)throw Error('一度に登録できるのは300商品までです。');
@@ -478,7 +482,7 @@ async function publishCatalog(){
   const exposed=visible.map(p=>({
    id:p.id,name:p.name,categoryId:p.categoryName,price:p.price,
    eventPrice:p.eventPrice??null,preorder:p.preorder===true,releaseMonth:p.releaseMonth??null,releasePeriod:p.releasePeriod||'',stock:p.stock??null,
-   variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null}))
+   variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null,stock:v.stock??null}))
   }));
   // Each product can propose up to 3 combinations. Keep the best discount
   // once when both sides define the same pair. Not an ordered purchase.
@@ -535,8 +539,15 @@ async function publishCatalog(){
     const next=Object.fromEntries(visible.map((p,i)=>[
       p.id,stocks[i].exists()?(stocks[i].data().stock??null):null
     ]));
+    const variantQuantities={};
+    visible.forEach((p,i)=>{
+      const current=stocks[i].exists()?stocks[i].data():p;
+      for(const variant of current.variants||[]){
+        variantQuantities[p.id+'::'+variant.code]=variant.stock??null;
+      }
+    });
     tx.set(doc(db,'publishedStock',brand.slug),{
-      brandId:user.uid,slug:brand.slug,quantities:next,updatedAt:serverTimestamp()
+      brandId:user.uid,slug:brand.slug,quantities:next,variantQuantities,updatedAt:serverTimestamp()
     });
   });
   message.textContent='公開しました：商品'+exposed.length+'件／商品画像'+uploaded.length+'枚。右のリンクからお客様ページを確認してください。';

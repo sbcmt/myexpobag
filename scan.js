@@ -69,12 +69,25 @@ function calculate(parsed,catalog){
 }
 function checkStock(parsed,stock,privateMap=null){
  const quantities=stock.quantities||{};
+ const variantQuantities=stock.variantQuantities||{};
  for(const [id,qty] of parsed.counts){
   if(!Object.prototype.hasOwnProperty.call(quantities,id))throw Error('在庫情報が未設定の商品です：'+id);
-  if(quantities[id]!==null&&(!Number.isInteger(quantities[id])||quantities[id]<qty))throw Error('在庫が不足しています：'+id+'（必要 '+qty+'点）');
+  if(quantities[id]!==null&&(!Number.isInteger(quantities[id])||quantities[id]<qty))throw Error('共通在庫が不足しています：'+id+'（必要 '+qty+'点）');
   if(privateMap){const p=privateMap.get(id);if(!p||p.active===false)throw Error('販売できない商品です：'+id);
-   if(p.stock!==null&&(!Number.isInteger(p.stock)||p.stock<qty))throw Error('在庫が不足しています（管理側）：'+id);
+   if(p.stock!==null&&(!Number.isInteger(p.stock)||p.stock<qty))throw Error('共通在庫が不足しています（管理側）：'+id);
   }
+ }
+ for(const item of parsed.items){
+  if(!item.variant)continue;
+  const privateProduct=privateMap?.get(item.id);
+  const privateVariant=privateProduct?.variants?.find(v=>v.code===item.variant);
+  if(privateProduct&&!privateVariant)throw Error('登録されていないバリエーションです：'+item.id+'_'+item.variant);
+  const key=item.key;
+  if(privateVariant && Number.isInteger(privateVariant.stock) && !(key in variantQuantities))
+   throw Error('カラー別在庫が未公開です。管理画面から商品を再公開してください：'+key);
+  const qty=variantQuantities[key]??null;
+  if(qty!==null&&(!Number.isInteger(qty)||qty<item.qty))throw Error('このバリエーションは在庫不足です：'+item.id+'_'+item.variant);
+  if(Number.isInteger(privateVariant?.stock)&&privateVariant.stock<item.qty)throw Error('このバリエーションは在庫不足（管理側）です：'+key);
  }
 }
 // All prices are frozen at first reservation. Subsequent cancellations recalculate
@@ -181,12 +194,26 @@ async function reserveAtScan(parsed,quote){
     .map(b=>({productIds:[...b.productIds],discountAmount:b.discountAmount}));
   if(reprice(originalLines,bundles)!==latest.amount)throw Error('セット割引の計算に不整合があります。');
   const newQuantities={...stock.quantities};
+  const newVariantQuantities={...(stock.variantQuantities||{})};
   for(const [id,qty] of counts){
    const privateProduct=privateMap.get(id);
    if(Number.isInteger(newQuantities[id]))newQuantities[id]-=qty;
-   if(Number.isInteger(privateProduct.stock))tx.update(productRefs[ids.indexOf(id)],{stock:privateProduct.stock-qty,updatedAt:serverTimestamp()});
+   const newVariants=(privateProduct.variants||[]).map(v=>({...v}));
+   let variantChanged=false;
+   for(const item of items.filter(x=>x.id===id && x.variant)){
+    const v=newVariants.find(x=>x.code===item.variant);
+    if(!v)throw Error('バリエーション情報が一致しません。');
+    if(Number.isInteger(newVariantQuantities[item.key]))newVariantQuantities[item.key]-=item.qty;
+    if(Number.isInteger(v.stock)){v.stock-=item.qty;variantChanged=true;}
+   }
+   if(Number.isInteger(privateProduct.stock)||variantChanged){
+    const update={updatedAt:serverTimestamp()};
+    if(Number.isInteger(privateProduct.stock))update.stock=privateProduct.stock-qty;
+    if(variantChanged)update.variants=newVariants;
+    tx.update(productRefs[ids.indexOf(id)],update);
+   }
   }
-  tx.update(refs.stock,{quantities:newQuantities,updatedAt:serverTimestamp()});
+  tx.update(refs.stock,{quantities:newQuantities,variantQuantities:newVariantQuantities,updatedAt:serverTimestamp()});
   const data={orderId:raw.o,brandId:user.uid,originalItems:compactItems(items),originalAmount:latest.amount,
    originalLines,remainingLines:originalLines,bundles,items:compactItems(items),amount:latest.amount,status:'reserved',
    scanTime:serverTimestamp(),updatedAt:serverTimestamp()};
@@ -234,7 +261,7 @@ async function cancelLine(key,all=false){
    const ids=[...totals.keys()];const productRefs=ids.map(id=>doc(db,'brands',user.uid,'products',id));
    const [stockSnap,ackSnap,...privateSnaps]=await Promise.all([tx.get(refs.stock),tx.get(refs.confirmation),...productRefs.map(r=>tx.get(r))]);
    if(!stockSnap.exists()||!ackSnap.exists())throw Error('現在の在庫情報に不整合があります。');
-   const stock=stockSnap.data(),next={...stock.quantities};
+   const stock=stockSnap.data(),next={...stock.quantities},nextVariants={...(stock.variantQuantities||{})};
    if(stock.brandId!==user.uid)throw Error('在庫の管理ブランドが一致しません。');
    ids.forEach((id,i)=>{
     if(!(id in next))throw Error('在庫情報が見つかりません：'+id);
@@ -242,11 +269,29 @@ async function cancelLine(key,all=false){
     if(current!==null){if(!Number.isInteger(current)||current+qty>100000000)throw Error('在庫の復元数が不正です');next[id]=current+qty;}
     if(!privateSnaps[i].exists())throw Error('元の商品が見つかりません：'+id);
     const priv=privateSnaps[i].data();
-    if(Number.isInteger(priv.stock)){if(priv.stock+qty>100000000)throw Error('商品在庫が上限を超えます');tx.update(productRefs[i],{stock:priv.stock+qty,updatedAt:serverTimestamp()});}
+    const revised=(priv.variants||[]).map(v=>({...v}));
+    let variantChanged=false;
+    for(const line of removed.filter(x=>x.id===id && x.variant)){
+     const key=id+'::'+line.variant;
+     const currentVariantStock=nextVariants[key];
+     if(Number.isInteger(currentVariantStock)){
+      if(currentVariantStock+line.qty>100000000)throw Error('SKU在庫の復元数が不正です');
+      nextVariants[key]=currentVariantStock+line.qty;
+     }
+     const variant=revised.find(v=>v.code===line.variant);
+     if(!variant)throw Error('元のバリエーションが見つかりません：'+key);
+     if(Number.isInteger(variant.stock)){variant.stock+=line.qty;variantChanged=true;}
+    }
+    if(Number.isInteger(priv.stock)||variantChanged){
+     const update={updatedAt:serverTimestamp()};
+     if(Number.isInteger(priv.stock)){if(priv.stock+qty>100000000)throw Error('商品在庫が上限を超えます');update.stock=priv.stock+qty;}
+     if(variantChanged)update.variants=revised;
+     tx.update(productRefs[i],update);
+    }
    });
    const amount=reprice(kept,sale.bundles||[]);
    const nextStatus=kept.length?'reserved':'cancelled';
-   tx.update(refs.stock,{quantities:next,updatedAt:serverTimestamp()});
+   tx.update(refs.stock,{quantities:next,variantQuantities:nextVariants,updatedAt:serverTimestamp()});
    tx.update(refs.sale,{items:compactItems(kept),remainingLines:kept,amount,status:nextStatus,updatedAt:serverTimestamp()});
    tx.update(refs.confirmation,{amount,status:kept.length?'confirmed':'cancelled',modified:true,updatedAt:serverTimestamp()});
    return {lines:kept,amount,status:nextStatus};
