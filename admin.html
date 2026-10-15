@@ -54,12 +54,12 @@
     </div>
   </header>
   <main class="wrap">
-    <div class="notice"><strong>v1.0.1｜管理画面の初期レイアウトです。</strong><br>ログイン認証はFirebaseに接続済みです。QR読み取り・顧客データ保存はまだ未実装のため、実際の顧客情報や機密データは登録しないでください。</div>
+    <div class="notice"><strong>v1.0.1｜管理画面の初期レイアウトです。</strong><br>購入QR・販売履歴・顧客CSVを連携。個人情報は管理者以外へ共有しないでください。</div>
     <section class="card navpanel" id="menu-panel" hidden aria-label="管理メニュー">
       <h2>管理メニュー</h2>
       <div class="admin-menu">
         <a class="menu-link" href="./products.html"><span>商品・カテゴリ登録</span><span aria-hidden="true">›</span></a>
-        <div class="menu-disabled" aria-disabled="true"><span>顧客CSVデータダウンロード</span><small>準備中</small></div>
+        <a class="menu-link" href="./customer-data.html"><span>顧客CSVデータダウンロード</span><span aria-hidden="true">›</span></a>
         <button type="button" class="menu-link" id="products-qr-menu" aria-expanded="false" aria-controls="product-qr-panel"><span>商品QRダウンロード</span><span aria-hidden="true">›</span></button>
         <details class="setting-group">
           <summary>設定 <span class="expand-hint">開く <span aria-hidden="true">⌄</span></span></summary>
@@ -87,7 +87,7 @@
     </section>
     <section class="card" aria-label="QR読み取り">
       <h2>購入QR読み取り</h2>
-      <p class="muted">読み取り画面で商品・金額を確認し、在庫を更新します。購入者情報・ノベルティの連携は後続工程です。</p>
+      <p class="muted">読み取り画面で商品・金額を確認し、在庫を更新します。購入者情報・ノベルティを連携します。</p>
       <div class="scanner" aria-label="購入QRの読み取り">
         <div class="scanner-symbol" aria-hidden="true"></div>
         <a href="./scan.html" style="color:white;font-weight:750;background:#146076;text-decoration:none;padding:12px 18px;border-radius:10px">購入QRを読み取る →</a>

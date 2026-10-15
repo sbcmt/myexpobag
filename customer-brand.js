@@ -128,17 +128,19 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   const productLink=modeLink==='product'&&productIds.has(valueLink)?valueLink:'';
   const externalLink=modeLink==='url'&&valueLink.length<=2048&&/^https:\/\/[^\s]+$/i.test(valueLink)?(()=>{try{const u=new URL(valueLink);return u.protocol==='https:'&&!u.username&&!u.password?u.href:''}catch{return ''}})():'';
   const bannerLink=productLink?{mode:'product',value:productLink}:externalLink?{mode:'url',value:externalLink}:{mode:'none',value:''};
+  const rawShipping=settings?.shipping||{};
+  const shipping={mode:rawShipping.mode==='threshold'?'threshold':'all',threshold:Math.max(0,Math.floor(Number(rawShipping.threshold)||0)),charge:Math.max(0,Math.floor(Number(rawShipping.charge)||0))};
   const noveltyMode=['all','minimum','product'].includes(settings?.novelty?.mode)?settings.novelty.mode:'none';
   const noveltyId=noveltyMode==='product'&&productIds.has(settings?.novelty?.productId)?settings.novelty.productId:'';
   return {
-    version:'1.0.1',
+    version:'1.0.1',ownerBrandId:handle.brandId,
     brand:{id:slug,name,description:'',logoUrl:typeof handle.logoUrl==='string'?handle.logoUrl:'',
       themePreset:typeof settings?.theme?.preset==='string'?settings.theme.preset:(typeof brandTheme.preset==='string'?brandTheme.preset:'natural'),
       customColors:settings?.theme?{}:(brandTheme.customColors||{})},
     event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',
       appPurchaseDiscountMode:safeDiscount,appPurchaseDiscountValue:discountValue,appPurchaseDiscountMinSpend:discountMinSpend,
       banner:{enabled:!bannerHidden,imageData:bannerImage,link:bannerLink}},
-    categories,products,bundles,
+    categories,products,bundles,shipping,
     novelty:{enabled:noveltyMode!=='none',mode:noveltyMode,name:noveltyMode!=='none'?String(settings.novelty.name||''):'',minSpend:noveltyMode==='minimum'?settings.novelty.minSpend:0,productId:noveltyId},
     line:{enabled:false}
   };

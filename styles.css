@@ -131,3 +131,6 @@ a.meb-banner-wrap{display:block;cursor:pointer;text-decoration:none}a.meb-banner
 
 /* v1.0.1: unmet app-discount threshold must not look like an active offer. */
 .offer-unmet{margin:15px 0 0;padding:0;background:none;border:0;border-radius:0;color:#b83229;font-size:12px;font-weight:400;line-height:1.9}
+
+/* Delivery/address fields only when a reservation is in the bag. */
+.meb-shipping{padding:14px;border:1px solid #d8e2e7;background:#f8fbfd;border-radius:12px;margin:12px 0}.meb-shipping h3{font-size:15px;margin:0 0 8px}

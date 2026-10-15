@@ -149,6 +149,12 @@
   const giftFor=(amount,lines=cartLines())=>{const n=cfg.novelty||{};return n.enabled && (n.mode==='all'||n.mode==='minimum'&&amount>=n.minSpend||n.mode==='product'&&lines.some(line=>line.id===n.productId));};
   const giftTag=p=>cfg.novelty?.enabled&&cfg.novelty.mode==='product'&&cfg.novelty.productId===p.id?'<span class="novelty-tag">ノベルティ対象商品</span>':'';
   const giftCaution='ノベルティの数量には限りがあります。なくなり次第終了します';
+  const preorderLines=()=>cartLines().filter(line=>line.product.preorder===true);
+  const deliveryFor=(base,items=cartLines())=>{
+    if(!items.some(x=>x.product?.preorder===true))return 0;
+    const shipping=cfg.shipping||{};
+    return shipping.mode==='threshold'&&base<shipping.threshold?Math.max(0,Math.round(shipping.charge||0)):0;
+  };
   const totalCalc = (registered=false) => {
     const listSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*normalPrice(line.product,line.color),0);
     const eventSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*unitPrice(line.product,line.color),0);
@@ -180,10 +186,11 @@
     const appDiscountPercent=activeMode==='percent'?offer.value:0;
     const appDiscountAmount=activeMode==='percent'?Math.min(beforeAppDiscount,Math.round(beforeAppDiscount*offer.value/100)):
       activeMode==='amount'?Math.min(beforeAppDiscount,offer.value):0;
-    const total=beforeAppDiscount-appDiscountAmount;
+    const shippingFee=deliveryFor(beforeAppDiscount);
+    const total=beforeAppDiscount-appDiscountAmount+shippingFee;
     return {listSubtotal,eventSubtotal,eventSaving:listSubtotal-eventSubtotal,bundleSaving:Math.min(eventSubtotal,saving),
       bundles:details,beforeAppDiscount,appDiscountMode:activeMode,eligibleAppDiscountPercent:offer.mode==='percent'?offer.value:0,
-      appDiscountPercent,appDiscountAmount,total};
+      appDiscountPercent,appDiscountAmount,shippingFee,total};
   };
   const cardProduct = p => `
     <article class="product-card">
@@ -294,9 +301,10 @@
       ${totals.bundles.map(b=>`<div class="order-row"><span class="order-label">セット割引：${esc(b.name)} × ${b.count}</span><span class="order-positive">−${yen(b.saving)}</span></div>`).join('')}
       <div class="order-total"><span>商品合計（税込）</span><strong>${yen(totals.beforeAppDiscount)}</strong></div>
       ${discountOffer().mode!=='none'?(discountEligible(totals.beforeAppDiscount)?`<div class="register-offer">お名前とメール登録で <strong>さらに${discountText()}</strong>${discountCondition()}<br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:`<p class="offer-unmet" role="status">アプリ割引は税込${yen(discountOffer().minSpend)}以上で適用されます（現在は対象外です）。</p>`):''}
+      ${preorderLines().length?`<div class="order-row"><span>予約商品・配送</span><strong>${totals.shippingFee>0?yen(totals.shippingFee)+'（送料）':'送料当社負担'}</strong></div>`:''}
       <div class="tiny-text" style="text-align:right;margin-top:9px">お支払いは会場で</div></section>
       ${cfg.novelty?.enabled&&cfg.novelty.mode==='all'?`<div class="gift-eligible"><strong>✦ ${esc(cfg.novelty.name)}</strong><p>購入者全員が対象です。${esc(giftCaution)}</p></div>`:''}
-      <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length||checkoutStockError()?'disabled':''}>購入QRを開く　→</button><p class="helptext">お名前・メール登録で割引（設定時）。登録せず購入することもできます。<br/>実際の注文はまだ送信されません。</p></div>`:
+      <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length||checkoutStockError()?'disabled':''}>購入QRを開く　→</button><p class="helptext">予約商品を含む場合は発送先情報が必要です。通常商品だけの場合、登録をスキップできます。</p></div>`:
       `<div class="empty-cart"><span class="empty-cart-emoji">▢</span><h2>MY BAGは空です</h2><p>気になった商品をBAGに追加しましょう。</p><button class="outline-btn" data-nav="#home">商品を探す　→</button></div>`}</div>`;
   };
   // This QR is an unsigned order *preview*, never proof of payment.
@@ -307,7 +315,7 @@
     t:'MEB2',o:order.id,b:cfg.brand.id,e:cfg.event.id,
     i:order.items.map(x=>[x.id,x.color,x.qty]),r:order.registered?1:0,
     c:'JPY',s:order.beforeAppDiscount,p:order.appDiscountPercent,
-    d:order.appDiscountAmount,a:order.total
+    d:order.appDiscountAmount,h:order.shippingFee||0,a:order.total
   });
   const renderQr=()=>{
     // An issued QR belongs to a specific order. The shared inventory count can
@@ -333,7 +341,9 @@
     $('#view').innerHTML=`<div class="page-body qr-page"><button class="back-button" data-nav="#bag" style="display:flex">${ICONS.left} MY BAGに戻る</button><div class="eyebrow">CHECKOUT QR</div><h1 class="page-title" style="margin-top:9px">購入QR</h1><p class="page-subtitle">この画面を出展者スタッフに見せてください。</p>
       <section class="qr-card"><div class="qr-status">動作確認用 QR</div><div class="qr-canvas-wrap"><canvas id="order-qr" width="480" height="480" role="img" aria-label="購入QRコード"></canvas></div>
       <div class="qr-price-box"><div class="qr-price-label">合計金額（税込）</div><div class="qr-price-base">${yen(order.beforeAppDiscount)}</div>
-        ${order.appDiscountAmount>0?`<div class="qr-app-discount"><span>アプリ割引（${order.appDiscountMode==='percent'?order.appDiscountPercent+'%':yen(discountOffer().value)+'引き'}）</span><span>−${yen(order.appDiscountAmount)}</span></div><div class="qr-price-final"><span>割引後のお支払い金額</span><strong>${yen(order.total)}</strong></div>`:''}
+        ${order.shippingFee>0?`<div class="qr-app-discount"><span>送料</span><span>＋${yen(order.shippingFee)}</span></div>`:order.hasPreorder?`<div class="qr-app-discount"><span>送料</span><span>送料当社負担</span></div>`:''}
+        ${order.appDiscountAmount>0?`<div class="qr-app-discount"><span>アプリ割引（${order.appDiscountMode==='percent'?order.appDiscountPercent+'%':yen(discountOffer().value)+'引き'}）</span><span>−${yen(order.appDiscountAmount)}</span></div>`:''}
+        ${order.appDiscountAmount>0||order.shippingFee>0?`<div class="qr-price-final"><span>お支払い予定金額（税込・送料含む）</span><strong>${yen(order.total)}</strong></div>`:''}
       </div><div class="qr-order-id">${esc(order.id)}</div><div class="qr-instructions">スタッフがQRを読み込み後、<br/>商品をご準備いたします。</div>
       ${checkoutStockError()?'<div role="status" style="margin-top:12px;font-size:12px;color:#945d23">在庫とご注文の状態を確認中です。スタッフへQRをご提示ください。</div>':''}</section>
       <div style="margin-top:18px"><div class="qr-data-row"><span>登録方法</span><strong>${order.registered?'名前・メールを登録':'登録をスキップ'}</strong></div>
@@ -342,7 +352,7 @@
         ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.color||line.id)}</span><strong>×${line.qty}</strong></div>`).join('')}
         <div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>
         ${order.gift?`${cfg.novelty.mode!=='minimum'?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}<div class="gift-qr-caution">${esc(giftCaution)}</div>`:''}</div>
-      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>登録の本人確認・顧客CSV保存・会計照合・確保放置時の自動解除は未実装です。金額の検証に通ったQRのみスタッフ側で在庫確保できます。実際の支払完了や商品引渡しを示すものではありません。</div>
+      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>注文情報・CSVの保存は追加済みですが、メールアドレスの本人確認、決済照合、確保放置時の自動解除は未実装です。実際の支払完了や商品引渡しを示すものではありません。</div>
       <button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;
     try{
       const code=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);code.addData(orderQrPayload(order));code.make();
@@ -430,20 +440,26 @@
       <div class="modal-heading"><h2 id="checkout-title" class="modal-title">購入QRを開く</h2><button type="button" class="icon-button" data-close-modal aria-label="閉じる">${ICONS.close}</button></div>
       ${discountOffer().mode!=='none'?(discountEligible(original.beforeAppDiscount)?`<div class="checkout-offer">お名前とメールを登録すると <strong>${discountText()}</strong>${discountCondition()}<br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:`<p class="offer-unmet" role="status">アプリ割引は税込${yen(discountOffer().minSpend)}以上で適用されます（現在は対象外です）。</p>`):''}
       <p class="modal-desc">登録するか、入力せずに購入QRを表示するか選べます。</p>
-      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button></div>
+      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false" ${preorderLines().length?'disabled':''}>入力をスキップ → QR表示</button></div>
       <form id="checkout-form"><div id="registration-fields">
         <label class="form-label" for="buyer-name">お名前 <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-name" name="name" autocomplete="name" required maxlength="80" placeholder="山田 太郎"/>
         <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>
         <label class="form-check"><input type="checkbox" name="news"/><span>新商品やイベントのお知らせをメールで受け取る（任意）</span></label>
-        <p class="tiny-text">購入者情報の登録と、広告メールを受け取る同意は別です。出展者によるプライバシー案内は管理画面接続時に追加します。</p></div>
+        <p class="tiny-text">お名前・メールは購入内容の照合に使用します。お知らせメールの同意は別です（初期OFF）。</p></div>
+        ${preorderLines().length?`<section class="meb-shipping"><h3>予約商品の発送先（必須）</h3><p class="tiny-text">予約商品は後日発送します。以下の情報は発送だけに使用し、購入QRには含めません。</p>
+      <label class="form-label" for="ship-postal">郵便番号（ハイフンなし7桁）</label><input class="form-input" id="ship-postal" name="shipPostal" inputmode="numeric" autocomplete="postal-code" pattern="[0-9]{7}" maxlength="7" required placeholder="7390000">
+      <label class="form-label" for="ship-address">発送先住所（都道府県・市区町村・番地・建物名）</label><input class="form-input" id="ship-address" name="shipAddress" autocomplete="street-address" required maxlength="200">
+      <label class="form-label" for="ship-name">お届け先氏名</label><input class="form-input" id="ship-name" name="shipName" autocomplete="name" required maxlength="80">
+      <label class="form-label" for="ship-phone">電話番号（数字のみ10～11桁）</label><input class="form-input" id="ship-phone" name="shipPhone" type="tel" inputmode="tel" pattern="[0-9]{10,11}" maxlength="11" required placeholder="09012345678">
+      <p class="tiny-text">${cfg.shipping?.mode==='threshold'?`税込${yen(cfg.shipping.threshold)}以上なら送料当社負担。未達時の送料は${yen(cfg.shipping.charge)}です。`:'送料当社負担です。'}</p></section>`:''}
         <div id="skip-description" class="skip-description" hidden>登録なしでQRを発行します。${discountOffer().mode!=='none'?'アプリ購入割引は適用されません。':'商品・セット割引はそのまま適用されます。'}</div>
         <div class="checkout-price-preview" id="checkout-price-preview">${discountOffer().mode!=='none'&&discountEligible(original.beforeAppDiscount)?`<span>登録後のお支払い金額</span><strong>${yen(offer.total)}</strong>`:`<span>お支払い予定額</span><strong>${yen(offer.total)}</strong>`}</div>
-        <p class="tiny-text" style="color:#955b34"><strong>デモ：</strong>お名前・メールはこの画面内のみで扱い、サーバーへ送信しません。QRにも入れません。</p>
+        <p class="tiny-text">登録した情報は出展ブランドの管理者だけが閲覧できる領域に保存します。発送情報は発送目的に限り使用し、必要期間終了後に削除してください。<strong>QRには個人情報を含めません。</strong></p>
         <div class="form-error" id="checkout-error" role="alert"></div><button class="primary-btn" type="submit">購入QRを表示する →</button></form></section></div>`;
     $('#buyer-name').focus();
   }
   function setCheckoutMode(mode){
-    if(!state.modalOpen||!['register','skip'].includes(mode))return;
+    if(!state.modalOpen||!['register','skip'].includes(mode)||(mode==='skip'&&preorderLines().length))return;
     state.checkoutMode=mode;
     const register=mode==='register';
     $('#registration-fields').hidden=!register;$('#skip-description').hidden=register;
@@ -454,20 +470,31 @@
     $('#checkout-error').textContent='';
   }
   function closeModal(){state.modalOpen=false;$('#modal-root').innerHTML='';}
-  function submitCheckout(form){
+  async function submitCheckout(form){
     const registered=state.checkoutMode==='register';
-    if(registered&&!form.reportValidity())return;if(checkoutStockError()){toast(checkoutStockError());return;}
+    if((registered||preorderLines().length)&&!form.reportValidity())return;if(checkoutStockError()){toast(checkoutStockError());return;}
     const fd=new FormData(form),name=registered?String(fd.get('name')||'').trim():'',email=registered?String(fd.get('email')||'').trim():'';
     if(registered&&(!name||!email)){$('#checkout-error').textContent='お名前とメールアドレスを入力してください。';return;}
-    if(!window.crypto?.getRandomValues){$('#checkout-error').textContent='安全な注文番号を作成できません。HTTPSで開いてください。';return;}
+    const shipping=preorderLines().length?{postal:String(fd.get('shipPostal')||'').trim(),address:String(fd.get('shipAddress')||'').trim(),name:String(fd.get('shipName')||'').trim(),phone:String(fd.get('shipPhone')||'').trim()}:{postal:'',address:'',name:'',phone:''};
+    if(preorderLines().length&&(!registered||!/^\d{7}$/.test(shipping.postal)||!/^\d{10,11}$/.test(shipping.phone)||!shipping.address||!shipping.name)){$('#checkout-error').textContent='予約商品には正しい発送先情報が必須です。';return;}
+    if(form.dataset.sending==='1')return;form.dataset.sending='1';const submit=form.querySelector('[type=submit]');submit.disabled=true;$('#checkout-error').textContent='登録内容を安全に保存しています…';
+    if(!window.crypto?.getRandomValues){$('#checkout-error').textContent='安全な注文番号を作成できません。HTTPSで開いてください。';delete form.dataset.sending;submit.disabled=false;return;}
     const bytes=new Uint8Array(10);crypto.getRandomValues(bytes);
     const id='DEMO-'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
     const totals=totalCalc(registered);
     const items=cartLines().map(line=>({id:line.id,color:line.color?line.id+'_'+line.color:'',qty:line.qty}));
+    try{
+      // Ordinary skipped orders have no personal-data record. Reservations and registered buyers do.
+      if(registered){
+        if(typeof window.MEB_SAVE_PRIVATE_CHECKOUT!=='function')throw Error('顧客データ保存機能を読み込めません。最新版を表示してください。');
+        await window.MEB_SAVE_PRIVATE_CHECKOUT({slug:cfg.brand.id,brandId:cfg.ownerBrandId||'',orderId:id,registered:true,buyerName:name,buyerEmail:email,marketingConsent:fd.get('news')==='on',hasPreorder:preorderLines().length>0,shipping});
+      }
+    }catch(error){console.error('checkout save',error);$('#checkout-error').textContent='購入情報を安全に保存できませんでした。'+(error.code==='auth/operation-not-allowed'?'Firebase Authenticationで「匿名」を有効にしてください。':'通信環境・認証設定をご確認ください。')+' QRはまだ発行していません。';delete form.dataset.sending;submit.disabled=false;return;}
+    delete form.dataset.sending;
     state.order={id,registered,name,email,newsletterConsent:registered&&fd.get('news')==='on',createdAt:new Date().toISOString(),
       items,count:itemCount(),listSubtotal:totals.listSubtotal,eventSubtotal:totals.eventSubtotal,bundleSaving:totals.bundleSaving,
       beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,appDiscountMode:totals.appDiscountMode,
-      appDiscountAmount:totals.appDiscountAmount,total:totals.total,
+      appDiscountAmount:totals.appDiscountAmount,shippingFee:totals.shippingFee,hasPreorder:preorderLines().length>0,total:totals.total,
       gift:giftFor(totals.beforeAppDiscount)};
     cancelOrderConfirmation();cancelOrderConfirmation=()=>{};
     const watchedId=id;
@@ -520,7 +547,7 @@
       if(mode==='skip')submitCheckout($('#checkout-form'));
     }
   });
-  document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();submitCheckout(event.target);});
+  document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();void submitCheckout(event.target);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});
   window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0,behavior:'instant'});});
   window.MEB_CATALOG_REFRESH=()=>{
