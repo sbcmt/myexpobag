@@ -150,14 +150,19 @@ function variantRow(values={}){
  const main=document.createElement('div');main.className='variant-row';
  const make=(label,cls,placeholder,value)=>{const wrap=document.createElement('div');wrap.className='field';const lb=document.createElement('label');lb.textContent=label;const input=document.createElement('input');input.className=cls;input.type='text';input.autocomplete='off';input.placeholder=placeholder;input.value=value??'';wrap.append(lb,input);return wrap;};
  main.append(make('バリエーション名','variant-name','例：ブラック / M',values.name));
- const code=make('サブコード','variant-code','例：LT-001_BK',values.code);code.querySelector('input').maxLength=70;main.append(code);
+ const code=make('サブコード（任意部分のみ）','variant-code','例：BK',values.code);const codeInput=code.querySelector('input');codeInput.maxLength=25;
+ const codeBox=document.createElement('div');codeBox.className='subcode-input';const prefix=document.createElement('span');prefix.className='subcode-prefix';prefix.textContent=(trim($('product-id').value)||'商品ID')+'_';
+ codeBox.append(prefix,codeInput);codeBox.classList.add('subcode-input');code.querySelector('label').after(codeBox);main.append(code);
  const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.className='danger';remove.addEventListener('click',()=>row.remove());main.append(remove);row.append(main);
  const prices=document.createElement('div');prices.className='cols';prices.append(make('バリエーション通常価格（任意）','variant-price','未設定なら商品価格',values.price));prices.append(make('バリエーション展示会特価（任意）','variant-event-price','未設定なら商品価格',values.eventPrice));row.append(prices);
  return row;
 }
+function refreshSubcodePrefixes(){const id=trim($('product-id').value)||'商品ID');for(const el of document.querySelectorAll('.subcode-prefix'))el.textContent=id+'_';}
+$('product-id').addEventListener('input',refreshSubcodePrefixes);
 function showVariants(variants=[]){
  const root=$('variant-rows');root.replaceChildren();const rows=variants.length?variants:[{},{},{}];
  for(const v of rows)root.append(variantRow(v));
+ refreshSubcodePrefixes();
 }
 function readVariants(id){
  const result=[],codes=new Set();
@@ -168,8 +173,8 @@ function readVariants(id){
   const eventText=trim(el.querySelector('.variant-event-price').value);
   if(!name&&!raw&&!priceText&&!eventText)continue;
   if(!name||!raw)throw Error('バリエーション名とサブコードはセットで入力してください。');
-  if(!raw.startsWith(id+'_'))throw Error('サブコードは「'+id+'_任意コード」の形式にしてください。');
-  const code=raw.slice(id.length+1).toUpperCase();
+  if(raw.startsWith(id+'_'))throw Error('サブコード欄には商品IDを含めず、BKなど末尾だけを入力してください。');
+  const code=raw.toUpperCase();
   if(!/^[A-Z0-9_-]{1,25}$/.test(code)||codes.has(code))throw Error('サブコードの形式または重複を確認してください。');
   codes.add(code);
   const price=money(priceText,'バリエーション通常価格',true),eventPrice=money(eventText,'バリエーション展示会価格',true);
@@ -184,6 +189,32 @@ $('add-variant').addEventListener('click',()=>{
  const el=variantRow();$('variant-rows').append(el);el.querySelector('.variant-name').focus();
 });
 showVariants();
+const MAX_COMBOS=3;
+function comboRow(values={}){
+ const el=document.createElement('div');el.className='combo-entry';el.style.cssText='border-bottom:1px dashed #d7e2e8;padding:9px 0';
+ const fields=document.createElement('div');fields.className='cols';
+ const make=(label,cls,value,placeholder,type='text')=>{const wrap=document.createElement('div');wrap.className='field';const lb=document.createElement('label');lb.textContent=label;const input=document.createElement('input');input.className=cls;input.type=type;input.value=value??'';input.placeholder=placeholder;if(type==='number'){input.min='0';input.step='1';input.max='100000000'}else input.maxLength=40;wrap.append(lb,input);return wrap;};
+ fields.append(make('組合せ商品ID（任意）','combo-id',values.productId,'例：BG-002'));
+ fields.append(make('組合せ時割引金額（税込・円）','combo-discount',values.discount??'','例：500','number'));
+ const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.className='danger';remove.style.marginBottom='10px';remove.addEventListener('click',()=>{el.remove();updateComboAddButton()});
+ el.append(fields,remove);return el;
+}
+function updateComboAddButton(){const count=$('combo-rows').children.length;$('add-combo').disabled=count>=MAX_COMBOS;$('combo-count').textContent=count+' / '+MAX_COMBOS+'件';}
+function showCombos(combos=[]){const box=$('combo-rows');box.replaceChildren();for(const item of combos.length?combos:[{}])box.append(comboRow(item));updateComboAddButton();}
+function readCombos(id){const rows=[];for(const el of $('combo-rows').children){const productId=trim(el.querySelector('.combo-id').value);const discountText=trim(el.querySelector('.combo-discount').value);
+ if(!productId&&!discountText)continue;
+ if(!productId)throw Error('組合せ割引金額を入力する場合は、組合せ商品IDも入力してください。');
+ rows.push({productId,discount:discountText===''?0:discountText});
+ }return validateCombos(id,rows);}
+function validateCombos(id,entries){if(entries.length>MAX_COMBOS)throw Error('組合せは最大3件までです。');const seen=new Set();return entries.map(entry=>{
+ const productId=trim(entry.productId);if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}$/.test(productId))throw Error(id+'：組合せ商品IDに使用できない文字があります。');
+ if(productId===id)throw Error(id+'：自分自身を組合せ商品に指定できません。');
+ if(seen.has(productId))throw Error(id+'：同じ組合せ商品IDは重複登録できません。');seen.add(productId);
+ return {productId,discount:money(entry.discount??0,id+'の組合せ割引金額')};
+ });}
+function existingCombos(p){if(Array.isArray(p?.combos))return p.combos;if(p?.comboProductId)return [{productId:p.comboProductId,discount:p.comboDiscount||0}];return [];}
+$('add-combo').addEventListener('click',()=>{if($('combo-rows').children.length>=MAX_COMBOS)return;const row=comboRow();$('combo-rows').append(row);updateComboAddButton();row.querySelector('.combo-id').focus();});
+showCombos();
 function productOf(fields){
  const id=trim(fields.id),name=trim(fields.name),categoryName=trim(fields.categoryName);
  if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}$/.test(id))throw Error('商品IDは半角英数字で始まる40文字以内の英数字・-・_にしてください。');
@@ -204,18 +235,18 @@ function productOf(fields){
  if(new Set(variants.map(v=>v.code)).size!==variants.length)throw Error(id+'：サブコードが重複しています。');
  const janCode=trim(fields.janCode??'');if(janCode&&!/^\d{8,14}$/.test(janCode))throw Error(id+'：JANコードは8〜14桁の数字にしてください。');
  const stock=money(fields.stock??'',id+'の在庫数',true);
- const comboProductId=trim(fields.comboProductId??'');
- if(comboProductId&&!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}$/.test(comboProductId))throw Error(id+'：組合せ商品IDの形式を確認してください。');
- const comboDiscount=money(fields.comboDiscount??'',id+'の組合せ割引金額',true)??0;
- if(comboDiscount&&!comboProductId)throw Error('組合せ時割引金額を入力する場合は組合せ商品IDも指定してください。');
- return {id,name,categoryName,price,eventPrice,variants,active:fields.active!==false,janCode,preorder:fields.preorder===true,stock,comboProductId,comboDiscount};
+ const inputCombos=Array.isArray(fields.combos)?fields.combos:(fields.comboProductId?[{productId:fields.comboProductId,discount:fields.comboDiscount??0}]:[]);
+ const combos=validateCombos(id,inputCombos);
+ // Preserve the legacy first-combination fields until the customer-page promotion logic is migrated.
+ const comboProductId=combos[0]?.productId||'',comboDiscount=combos[0]?.discount||0;
+ return {id,name,categoryName,price,eventPrice,variants,active:fields.active!==false,janCode,preorder:fields.preorder===true,stock,combos,comboProductId,comboDiscount};
 }
 function inputData(){
  const id=trim($('product-id').value);
  return productOf({id,name:$('product-name').value,categoryName:$('product-category').value,
   price:$('product-price').value,eventPrice:$('product-event-price').value,variants:readVariants(id),active:$('product-active').checked,
   janCode:$('product-jan').value,stock:$('product-stock').value,preorder:$('product-preorder').checked,
-  comboProductId:$('product-combo-id').value,comboDiscount:$('product-combo-discount').value});
+  combos:readCombos(id)});
 }
 function categoryOptions(){
  $('categories').replaceChildren();$('category-options').replaceChildren();$('category-count').textContent=categories.length+'件';
@@ -246,13 +277,13 @@ function editProduct(id){
  const p=products.get(id);if(!p)return;
  $('product-id').value=p.id;$('product-id').readOnly=true;$('product-name').value=p.name;
  $('product-category').value=p.categoryName;$('product-price').value=p.price;$('product-event-price').value=p.eventPrice??'';
- showVariants((p.variants||[]).map(v=>({code:p.id+'_'+v.code,name:v.name,price:v.price??'',eventPrice:v.eventPrice??''})));
+ showVariants((p.variants||[]).map(v=>({code:trim(v.code).startsWith(p.id+'_')?trim(v.code).slice(p.id.length+1):v.code,name:v.name,price:v.price??'',eventPrice:v.eventPrice??''})));
  $('product-jan').value=p.janCode||'';$('product-stock').value=p.stock??'';$('product-preorder').checked=p.preorder===true;
- $('product-combo-id').value=p.comboProductId||'';$('product-combo-discount').value=p.comboDiscount||'';$('product-active').checked=p.active!==false;
+ showCombos(existingCombos(p));$('product-active').checked=p.active!==false;
  pendingImage=null;$('product-image').value='';loadSavedImage(id,++imageRevision);
  $('edit-note').textContent='編集中：'+p.id+'（商品IDは変更できません）';$('product-form').scrollIntoView({behavior:'smooth',block:'start'});
 }
-function clearForm(){ ++imageRevision;pendingImage=null;imageProcessing=false;$('product-form').reset();showVariants();$('product-id').readOnly=false;$('product-active').checked=true;$('edit-note').textContent='新規登録';imagePreview('');$('product-image-hint').textContent='未選択の場合、登録済み画像は変更しません。';setBusy(busy);}
+function clearForm(){ ++imageRevision;pendingImage=null;imageProcessing=false;$('product-form').reset();showVariants();showCombos();$('product-id').readOnly=false;$('product-active').checked=true;$('edit-note').textContent='新規登録';imagePreview('');$('product-image-hint').textContent='未選択の場合、登録済み画像は変更しません。';setBusy(busy);}
 function toFirestore(p,original){return {...p,createdAt:original?.createdAt||serverTimestamp(),updatedAt:serverTimestamp()};}
 async function saveProduct(event){
  event.preventDefault();if(busy||imageProcessing||!user)return;
@@ -287,19 +318,21 @@ async function deleteProduct(id){
  setBusy(true);try{const batch=writeBatch(db);batch.delete(prodRef(id));batch.delete(imageRef(id));await batch.commit();products.delete(id);imageKnown.delete(id);render();if($('product-id').value===id)clearForm();status('商品を削除しました。');}
  catch(err){console.error(err);status('商品を削除できませんでした。',true);}finally{setBusy(false);}
 }
-// Japanese 15-column workbook. One product ID may appear on multiple rows for variants.
-const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)'];
+// Japanese 19-column workbook. One parent ID can span multiple variation rows; old 15-column files are also readable.
+const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)'];
 const sample=[
- ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','LT-001_BK','カラー：ブラック','','','BG-002',500],
- ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','LT-001_KH','カラー：カーキ','','','BG-002',500],
- ['バッグ','BG-002','キャンバスバッグ',3200,1,'','','','','','','','','','']
+ ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','BK','カラー：ブラック','','','BG-002',500,'TB-003',300,'', ''],
+ ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','KH','カラー：カーキ','','','BG-002',500,'TB-003',300,'', ''],
+ ['バッグ','BG-002','キャンバスバッグ',3200,1,'','','','','','','','','','','','','',''],
+ ['テーブル','TB-003','サイドテーブル',5900,1,'','','','','','','','','','','','','','']
 ];
 function xlsx(){if(!window.XLSX)throw Error('Excelライブラリが読み込めません。通信環境を確認し、ページを再読み込みしてください。');return window.XLSX;}
 function spreadsheetRows(){
  const rows=[];
  for(const p of [...products.values()].sort((a,b)=>a.id.localeCompare(b.id,'ja'))){
   const variants=p.variants?.length?p.variants:[null];
-  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,p.stock??'',v?p.id+'_'+v.code:'',v?.name||'',v?.price??'',v?.eventPrice??'',p.comboProductId||'',p.comboDiscount||'']);
+  const combos=existingCombos(p);
+  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,p.stock??'',v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'']);
  }
  return rows;
 }
@@ -310,11 +343,13 @@ function workbookFor(data){
   ['手順 1','「商品登録」シートに必要項目を入力します。'],
   ['手順 2','商品IDは半角英数字・ハイフン(-)・アンダースコア(_)のみ。スラッシュ(/)は使えません。'],
   ['手順 3','カラーやサイズが複数ある場合、同じIDの行を増やしてサブコードとバリエーション項目を記入します。'],
-  ['手順 4','サブコードは ID_任意コード（例 LT-001_BK）。バリエーションがない商品は空欄です。'],
+  ['手順 4','サブコード欄には末尾だけ記入（例 BK）。商品ID LT-001 なら最終コード LT-001_BK になります。'],
   ['手順 5','必須：カテゴリ・ID・商品名・税込価格・表示/非表示。表示は1、非表示は0。'],
   ['手順 6','在庫数の空欄は無制限、0は在庫0。受注予約は1なら予約、空欄または0なら通常。'],
   ['手順 7','JANは先頭の0が消えないよう、文字列として入力してください。金額は税込の整数円です。'],
-  ['手順 8','保存形式は .xlsx のまま変更せず、管理画面のExcel一括登録から読み込みます。'],
+  ['手順 8','組合せ商品は最大3件まで。商品ID1〜3と、それぞれの組合せ割引金額を入力します。'],
+  ['手順 9','同一商品のバリエーション行では組合せ設定も同じ内容で繰り返してください。'],
+  ['手順 10','保存形式は .xlsx のまま変更せず、管理画面のExcel一括登録から読み込みます。'],
   ['画像ZIP','商品画像は別途 ZIP で登録。画像ファイル名は ID.jpg 等、1IDにつき1枚。'],
   ['安全上の注意','同一IDを登録すると、その商品情報は上書きされます。アップロード前に内容をご確認ください。']
  ];
@@ -329,17 +364,21 @@ function workbookFor(data){
   ['展示会特価(任意)','任意','通常の税込価格より安い整数円。'],
   ['受注予約(任意)','任意','1 = 予約 / 0または空欄 = 通常'],
   ['在庫数(任意)','任意','整数。空欄 = 数量上限なし'],
-  ['サブコード(任意)','任意','商品ID_任意コード（例 LT-001_BK）'],
+  ['サブコード(任意)','任意','末尾のみ（例 BK）。商品ID_ を自動で付けます。'],
   ['バリエーション項目(任意)','任意','例：カラー：ブラック、サイズ：M'],
   ['バリエーションごとの通常価格(任意)','任意','未入力なら商品の税込価格を使用'],
   ['バリエーションごとの展示会特価(任意)','任意','未入力なら商品の展示会特価を使用'],
   ['組合せ商品ID(任意)','任意','組合せ相手となる商品ID'],
-  ['組合せ時割引金額(任意)','任意','組合せ購入時に減額する整数円']
+  ['組合せ時割引金額(任意)','任意','1件目の組合せ購入時に減額する整数円'],
+  ['組合せ商品ID2(任意)','任意','2件目の組合せ商品ID（最大3件）'],
+  ['組合せ時割引金額2(任意)','任意','2件目の割引金額（税込円）'],
+  ['組合せ商品ID3(任意)','任意','3件目の組合せ商品ID（最大3件）'],
+  ['組合せ時割引金額3(任意)','任意','3件目の割引金額（税込円）']
  ];
  const sheets=[['使い方',how],['商品登録',[headers,...data]],['入力例',[headers,...sample]],['項目説明',about]];
  for(const [name,rows] of sheets){
   const ws=X.utils.aoa_to_sheet(rows);ws['!cols']= name==='商品登録'||name==='入力例'?headers.map((h,i)=>({wch:Math.min(i===10?24:21,Math.max(13,h.length+2))})):[{wch:33},{wch:90}];
-  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:O'+Math.max(2,rows.length)};
+  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:S'+Math.max(2,rows.length)};
   X.utils.book_append_sheet(wb,ws,name);
  }
  return wb;
@@ -352,23 +391,27 @@ function parseWorkbook(bytes){
  if(rows.length<2)throw Error('「商品登録」シートに登録するデータがありません。');
  const normalize=h=>trim(h).replace(/[（(]任意[)）]/g,'').replace(/\s+/g,'').toLowerCase();
  const indexes=headers.map(h=>(rows[0]||[]).findIndex(v=>normalize(v)===normalize(h)));
- if(indexes.some(i=>i<0))throw Error('テンプレートの列が不足しています。15項目を変更しないでください。');
+ if(indexes.slice(0,15).some(i=>i<0))throw Error('テンプレートの必須列が不足しています。先頭15項目を変更しないでください。');
+ // Existing 15-column exports used full prefixed subcodes: accept those only for legacy templates.
+ const legacyTemplate=indexes.slice(15).every(index=>index<0);
  const entries=new Map();
  for(let i=1;i<rows.length;i++){
-  const row=rows[i],get=k=>trim(row[indexes[k]]??'');
+  const row=rows[i],get=k=>indexes[k]<0?'':trim(row[indexes[k]]??'');
   if(!row.some(v=>trim(v)!==''))continue;
   const id=get(1),active=get(4);
   if(!['0','1'].includes(active))throw Error((i+1)+'行目：表示/非表示は 0 か 1 を入力してください。');
   if(get(7)&&!['0','1'].includes(get(7)))throw Error((i+1)+'行目：受注予約は 0 か 1 を入力してください。');
-  const base={id,categoryName:get(0),name:get(2),price:get(3),active:active==='1',janCode:get(5),eventPrice:get(6),preorder:get(7)==='1',stock:get(8),comboProductId:get(13),comboDiscount:get(14)};
+  const combos=[];for(const [idCol,discountCol] of [[13,14],[15,16],[17,18]]){const toId=get(idCol),toDiscount=get(discountCol);if(toId||toDiscount)combos.push({productId:toId,discount:toDiscount||0});}
+  const base={id,categoryName:get(0),name:get(2),price:get(3),active:active==='1',janCode:get(5),eventPrice:get(6),preorder:get(7)==='1',stock:get(8),combos};
   const flatKey=JSON.stringify(base);
   let entry=entries.get(id);
   if(entry&&entry.key!==flatKey)throw Error((i+1)+'行目：同じIDの基本項目が他の行と異なります。');
   if(!entry){entry={key:flatKey,base,variants:[]};entries.set(id,entry);}
   const sub=get(9),variantName=get(10),price=get(11),eventPrice=get(12);
   if(sub||variantName||price||eventPrice){
-   if(!sub||!variantName||!sub.startsWith(id+'_'))throw Error((i+1)+'行目：サブコードは商品ID_任意コードとバリエーション名をセットで記入してください。');
-   const code=sub.slice(id.length+1).toUpperCase();
+   if(!sub||!variantName)throw Error((i+1)+'行目：サブコード末尾とバリエーション名をセットで記入してください。');
+   if(sub.startsWith(id+'_')&&!legacyTemplate)throw Error((i+1)+'行目：サブコード欄には商品IDを入れず、BKなど末尾だけを入力してください。');
+   const code=(legacyTemplate&&sub.startsWith(id+'_')?sub.slice(id.length+1):sub).toUpperCase();
    entry.variants.push({code,name:variantName,price,eventPrice});
   }
  }
