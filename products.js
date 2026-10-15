@@ -8,17 +8,120 @@ const loginUrl=new URL('./login.html',location.href).href;
 const brandSetupUrl=new URL('./brand-setup.html',location.href).href;
 const maxProducts=300;
 let db,user=null,brand=null,products=new Map(),categories=[],importData=null,busy=false;
+let pendingImage=null,imageProcessing=false,imageRevision=0,imagesReady=[],imageKnown=new Set();
 const coll=()=>collection(db,'brands',user.uid,'products');
 const prodRef=id=>doc(db,'brands',user.uid,'products',id);
 const catRef=()=>doc(db,'brands',user.uid,'catalogSettings','main');
+const imageRef=id=>doc(db,'brands',user.uid,'productImages',id);
 const trim=v=>String(v??'').trim();
 const yen=n=>'¥'+Number(n).toLocaleString('ja-JP');
 function status(message,error=false){const e=$('status');e.textContent=message;e.className='status'+(error?' error':'');e.hidden=false;}
-function setBusy(flag){busy=flag;for(const id of ['product-save','import-save'])$(id).disabled=flag||(id==='import-save'&&!importData);if(user)categoryOptions();}
+function setBusy(flag){busy=flag;for(const id of ['product-save','import-save','images-save'])$(id).disabled=flag||imageProcessing||(id==='import-save'&&!importData)||(id==='images-save'&&!imagesReady.length);if(user)categoryOptions();}
 function money(value,label,optional=false){
  const v=trim(value);if(optional&&v==='')return null;
  if(!/^\d{1,9}$/.test(v)||Number(v)>100000000)throw Error(label+'は0〜100,000,000の整数で入力してください。');
  return Number(v);
+}
+// Images are isolated from product documents so product list reads stay small.
+// Uploaded originals (<=15 MB) are converted in the browser to <=80 KiB each.
+const IMAGE_DATA_LIMIT=109200; // data URI characters: roughly 80 KiB of image bytes
+const MAX_ORIGINAL_IMAGE_BYTES=15*1024*1024;
+function imagePreview(data){
+ const img=$('product-image-preview');img.hidden=!data;
+ if(data){img.src=data;img.alt='商品画像のプレビュー';}
+ else img.removeAttribute('src');
+}
+function imageFormatOK(f){return /\.(?:jpe?g|png|webp|heic|heif)$/i.test(f.name||'') || /^image\/(?:jpe?g|png|webp|heic|heif)$/i.test(f.type||'');}
+async function compressImage(file){
+ if(!imageFormatOK(file))throw Error('画像はJPG・PNG・WebP・HEIC/HEIFから選択してください。');
+ if(!file.size||file.size>MAX_ORIGINAL_IMAGE_BYTES)throw Error('元画像は1枚15MB以内にしてください。');
+ const objectUrl=URL.createObjectURL(file);let bitmap;
+ try{
+  let photo;
+  try{photo=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('画像形式を読み取れませんでした。'));img.src=objectUrl;});}
+  catch(error){if(typeof createImageBitmap==='function'){try{bitmap=await createImageBitmap(file);photo=bitmap;}catch(_){/* unsupported */}}
+   if(!photo)throw Error('画像を開けませんでした。iPhoneの場合は写真をJPEGで書き出して再度お試しください。');
+  }
+  const width=photo.naturalWidth||photo.width,height=photo.naturalHeight||photo.height;
+  if(!width||!height)throw Error('画像のサイズを確認できませんでした。');
+  for(const maxSide of [800,720,640,560,480,400,320]){
+   const scale=Math.min(1,maxSide/Math.max(width,height));
+   const w=Math.max(1,Math.round(width*scale)),h=Math.max(1,Math.round(height*scale));
+   const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+   const ctx=canvas.getContext('2d');if(!ctx)throw Error('画像処理に対応していないブラウザです。');
+   // White product-photo background keeps transparent PNGs predictable in JPEG fallback.
+   ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(photo,0,0,w,h);
+   for(const mime of ['image/webp','image/jpeg']){
+    for(const quality of [.83,.72,.60,.50,.40,.30]){
+     const data=canvas.toDataURL(mime,quality);
+     // Safari may silently encode a different image type: detect it.
+     if(data.startsWith('data:'+mime+';base64,')&&data.length<=IMAGE_DATA_LIMIT)return data;
+    }
+   }
+  }
+  throw Error('80KB以下へ変換できませんでした。別の画像を試してください。');
+ }finally{bitmap?.close?.();URL.revokeObjectURL(objectUrl);}
+}
+async function onImageSelected(){
+ const file=$('product-image').files?.[0],revision=++imageRevision;
+ pendingImage=null;imagePreview('');if(!file){$('product-image-hint').textContent='未選択の場合、登録済み画像は変更しません。';return;}
+ imageProcessing=true;setBusy(busy);$('product-image-hint').textContent='画像を自動圧縮しています…';
+ try{const data=await compressImage(file);if(revision!==imageRevision)return;
+  pendingImage=data;imagePreview(data);$('product-image-hint').textContent='保存画像：約'+Math.ceil((data.length-data.indexOf(',')-1)*3/4/1024)+'KB ／ 「商品を保存」で画像も登録';
+ }catch(err){if(revision===imageRevision){$('product-image-hint').textContent='画像は未選択です。';$('product-image').value='';status(err.message,true);}}
+ finally{if(revision===imageRevision){imageProcessing=false;setBusy(busy);}}
+}
+async function loadSavedImage(id,revision){
+ $('product-image-hint').textContent='登録済み画像を確認しています…';imagePreview('');
+ try{
+  const snap=await getDoc(imageRef(id));if(revision!==imageRevision)return;
+  const data=snap.exists()?snap.data().imageData:'';
+  imagePreview(typeof data==='string'&&/^data:image\/(webp|jpeg);base64,/.test(data)?data:'');
+  $('product-image-hint').textContent=snap.exists()?'登録済み画像あり。画像を選び直すと上書きされます。':'画像未登録。画像を選択して保存できます。';
+  if(snap.exists())imageKnown.add(id);
+ }catch(error){if(revision===imageRevision)$('product-image-hint').textContent='登録済み画像の確認に失敗しました。';}
+}
+function clearImagesPreview(){imagesReady=[];$('images-save').disabled=true;$('images-preview').hidden=true;$('images-preview').replaceChildren();$('images-count').textContent='';}
+function imageBulkCheck(){
+ clearImagesPreview();
+ const files=Array.from($('images-import').files||[]);if(!files.length)return;
+ if(files.length>50){status('画像は1回50枚まで選択してください。',true);return;}
+ let accepted=[];const errors=[],ids=new Set(),duplicates=new Set();
+ for(const f of files){
+  const m=f.name.match(/^(.+)\.(jpg|jpeg|png|webp|heic|heif)$/i);
+  if(!m){errors.push(f.name+'：画像形式が対象外');continue;}
+  const id=m[1];
+  if(!products.has(id)){errors.push(f.name+'：商品ID「'+id+'」が未登録（大文字・小文字も一致が必要）');continue;}
+  if(ids.has(id)){duplicates.add(id);errors.push(f.name+'：同じIDの画像が複数あります');continue;}
+  if(f.size>MAX_ORIGINAL_IMAGE_BYTES){errors.push(f.name+'：15MBを超えています');continue;}
+  ids.add(id);accepted.push({id,file:f});
+ }
+ accepted=accepted.filter(e=>!duplicates.has(e.id));
+ if(duplicates.size)for(const id of duplicates)errors.push(id+'：重複しているため同IDの画像はすべて除外しました');
+ imagesReady=accepted;
+ const box=$('images-preview');
+ for(const item of accepted){const line=document.createElement('div');line.textContent='✓ '+item.id+' ← '+item.file.name;box.append(line);}
+ for(const reason of errors){const line=document.createElement('div');line.style.color='#a4342c';line.textContent='× '+reason;box.append(line);}
+ box.hidden=false;$('images-count').textContent=accepted.length+'枚登録可能'+(errors.length?'／'+errors.length+'枚は除外':'');
+ $('images-save').disabled=!accepted.length||busy;
+ if(errors.length)status('画像名と商品IDが一致しないファイルなどを除外しました。下の一覧をご確認ください。',true);
+}
+async function saveBulkImages(){
+ if(busy||!imagesReady.length)return;
+ const toSave=imagesReady.slice();if(!confirm(toSave.length+'件の画像を商品IDに紐づけて保存しますか？既存画像は上書きします。'))return;
+ setBusy(true);let ok=0;const errors=[];
+ try{
+  for(const entry of toSave){
+   status('画像を保存中… '+(ok+errors.length+1)+' / '+toSave.length+'（'+entry.id+'）');
+   try{
+    const data=await compressImage(entry.file);
+    const batch=writeBatch(db);batch.set(imageRef(entry.id),{productId:entry.id,imageData:data,updatedAt:serverTimestamp()});
+    await batch.commit();imageKnown.add(entry.id);ok++;
+   }catch(error){console.error(error);errors.push(entry.id+'：'+(error.message||'保存失敗'));}
+  }
+  if(!errors.length){$('images-import').value='';clearImagesPreview();status(ok+'件の商品画像を保存しました。');}
+  else{imagesReady=toSave.filter(e=>errors.some(v=>v.startsWith(e.id+'：')));$('images-count').textContent='失敗した'+imagesReady.length+'件は再試行できます';$('images-save').disabled=false;status(ok+'件保存、'+errors.length+'件失敗。\n'+errors.slice(0,5).join('\n'),true);}
+ }finally{setBusy(false);}
 }
 function parseVariants(value){
  const input=trim(value);if(!input)return [];
@@ -74,12 +177,13 @@ function editProduct(id){
  $('product-id').value=p.id;$('product-id').readOnly=true;$('product-name').value=p.name;
  $('product-category').value=p.categoryName;$('product-price').value=p.price;$('product-event-price').value=p.eventPrice??'';
  $('product-colors').value=(p.variants||[]).map(v=>v.code+':'+v.name).join(' | ');$('product-active').checked=p.active!==false;
+ pendingImage=null;$('product-image').value='';loadSavedImage(id,++imageRevision);
  $('edit-note').textContent='編集中：'+p.id+'（商品IDは変更できません）';$('product-form').scrollIntoView({behavior:'smooth',block:'start'});
 }
-function clearForm(){ $('product-form').reset();$('product-id').readOnly=false;$('product-active').checked=true;$('edit-note').textContent='新規登録';}
+function clearForm(){ ++imageRevision;pendingImage=null;imageProcessing=false;$('product-form').reset();$('product-id').readOnly=false;$('product-active').checked=true;$('edit-note').textContent='新規登録';imagePreview('');$('product-image-hint').textContent='未選択の場合、登録済み画像は変更しません。';setBusy(busy);}
 function toFirestore(p,original){return {...p,createdAt:original?.createdAt||serverTimestamp(),updatedAt:serverTimestamp()};}
 async function saveProduct(event){
- event.preventDefault();if(busy||!user)return;
+ event.preventDefault();if(busy||imageProcessing||!user)return;
  let p;try{p=inputData();}catch(err){status(err.message,true);return;}
  if(!products.has(p.id)&&products.size>=maxProducts){status('登録上限300商品です。',true);return;}
  const nextCategories=categories.includes(p.categoryName)?categories:[...categories,p.categoryName];
@@ -87,8 +191,9 @@ async function saveProduct(event){
  setBusy(true);
  try{
   const batch=writeBatch(db);batch.set(prodRef(p.id),toFirestore(p,products.get(p.id)));
+  if(pendingImage)batch.set(imageRef(p.id),{productId:p.id,imageData:pendingImage,updatedAt:serverTimestamp()});
   if(nextCategories.length!==categories.length)batch.set(catRef(),{categories:nextCategories,updatedAt:serverTimestamp()});
-  await batch.commit();products.set(p.id,{...products.get(p.id),...p});categories=nextCategories;render();clearForm();status('「'+p.name+'」を保存しました。');
+  await batch.commit();const imageWasSaved=!!pendingImage;if(imageWasSaved)imageKnown.add(p.id);products.set(p.id,{...products.get(p.id),...p});categories=nextCategories;render();clearForm();status('「'+p.name+'」を'+(imageWasSaved?'画像とともに':'')+'保存しました。');
  }catch(err){console.error(err);status('保存できませんでした。認証・Firestoreルール・通信環境をご確認ください。',true);}finally{setBusy(false);}
 }
 async function addCategory(event){
@@ -107,7 +212,7 @@ async function removeCategory(name){
 }
 async function deleteProduct(id){
  if(busy)return;const p=products.get(id);if(!p||!confirm('「'+p.name+'（'+id+'）」を削除しますか？'))return;
- setBusy(true);try{const batch=writeBatch(db);batch.delete(prodRef(id));await batch.commit();products.delete(id);render();if($('product-id').value===id)clearForm();status('商品を削除しました。');}
+ setBusy(true);try{const batch=writeBatch(db);batch.delete(prodRef(id));batch.delete(imageRef(id));await batch.commit();products.delete(id);imageKnown.delete(id);render();if($('product-id').value===id)clearForm();status('商品を削除しました。');}
  catch(err){console.error(err);status('商品を削除できませんでした。',true);}finally{setBusy(false);}
 }
 function csvCells(text,delimiter){
@@ -178,6 +283,8 @@ async function refresh(){if(!user)return;try{
  products=new Map(prodSnap.docs.map(snapshot=>[snapshot.id,snapshot.data()]));render();return true;
  }catch(err){console.error(err);status('商品情報を読み込めませんでした。Firestoreルールをご確認ください。',true);return false;}}
 $('product-form').addEventListener('submit',saveProduct);$('product-clear').addEventListener('click',clearForm);
+$('product-image').addEventListener('change',onImageSelected);
+$('images-import').addEventListener('change',imageBulkCheck);$('images-save').addEventListener('click',saveBulkImages);
 $('category-form').addEventListener('submit',addCategory);$('refresh-products').addEventListener('click',async()=>{if(await refresh())status('登録情報を更新しました。');});
 $('import-file').addEventListener('change',fileChanged);$('import-save').addEventListener('click',importProducts);
 $('download-csv').addEventListener('click',()=>downloadFile('myexpobag_template.csv',[headers,...sample],','));
