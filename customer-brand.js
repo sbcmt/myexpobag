@@ -68,6 +68,12 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
     }
     return imagePromises.get(productId);
   };
+  // Subscribe to the tiny live stock document, not every product separately.
+  window.MEB_WATCH_PUBLIC_STOCK=(notify)=>onSnapshot(doc(db,'publishedStock',slug),snap=>{
+    if(!snap.exists() || snap.metadata.fromCache)return;
+    const quantities=snap.data().quantities||{};
+    if(quantities && typeof quantities==='object' && !Array.isArray(quantities)) notify(quantities);
+  },error=>console.warn('在庫同期に失敗しました。',error));
   const categories=Array.isArray(catalog?.categories)?catalog.categories:[];
   const bundles=Array.isArray(catalog?.bundles)?catalog.bundles:[];
   // Do not use demo discounts/novelties from config.js. No published settings = no promo.

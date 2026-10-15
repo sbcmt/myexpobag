@@ -1,7 +1,7 @@
 /** MY EXPO BAG v1.0.1 — brand-owned product management and public catalog publishing. */
 import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {getFirestore,collection,doc,getDoc,getDocs,writeBatch,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import {getFirestore,collection,doc,getDoc,getDocs,writeBatch,runTransaction,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 const $=id=>document.getElementById(id);
 const firebase=window.MEB_FIREBASE_CONFIG||{};
 const loginUrl=new URL('./login.html',location.href).href;
@@ -159,6 +159,9 @@ function variantRow(values={}){
 }
 function refreshSubcodePrefixes(){const id=trim($('product-id').value)||'商品ID';for(const el of document.querySelectorAll('.subcode-prefix'))el.textContent=id+'_';}
 $('product-id').addEventListener('input',refreshSubcodePrefixes);
+for(let m=1;m<=12;m++){const option=document.createElement('option');option.value=String(m);option.textContent=m+'月';$('release-month').append(option);}
+function toggleRelease(){const required=$('product-preorder').checked;$('release-settings').hidden=!required;$('release-month').required=required;$('release-period').required=required;if(!required){$('release-month').value='';$('release-period').value='';}}
+$('product-preorder').addEventListener('change',toggleRelease);toggleRelease();
 function showVariants(variants=[]){
  const root=$('variant-rows');root.replaceChildren();const rows=variants.length?variants:[{},{},{}];
  for(const v of rows)root.append(variantRow(v));
@@ -235,17 +238,22 @@ function productOf(fields){
  if(new Set(variants.map(v=>v.code)).size!==variants.length)throw Error(id+'：サブコードが重複しています。');
  const janCode=trim(fields.janCode??'');if(janCode&&!/^\d{8,14}$/.test(janCode))throw Error(id+'：JANコードは8〜14桁の数字にしてください。');
  const stock=money(fields.stock??'',id+'の在庫数',true);
+   const preorder=fields.preorder===true;
+   const releaseMonth=preorder?Number(fields.releaseMonth):null;
+   const releasePeriod=preorder?trim(fields.releasePeriod):'';
+   if(preorder&&(!Number.isInteger(releaseMonth)||releaseMonth<1||releaseMonth>12||!['上旬','中旬','下旬'].includes(releasePeriod)))
+     throw Error(id+'：予約商品は発売予定月（1～12月）と時期（上旬・中旬・下旬）が必須です。');
  const inputCombos=Array.isArray(fields.combos)?fields.combos:(fields.comboProductId?[{productId:fields.comboProductId,discount:fields.comboDiscount??0}]:[]);
  const combos=validateCombos(id,inputCombos);
  // Preserve the legacy first-combination fields until the customer-page promotion logic is migrated.
  const comboProductId=combos[0]?.productId||'',comboDiscount=combos[0]?.discount||0;
- return {id,name,categoryName,price,eventPrice,variants,active:fields.active!==false,janCode,preorder:fields.preorder===true,stock,combos,comboProductId,comboDiscount};
+ return {id,name,categoryName,price,eventPrice,variants,active:fields.active!==false,janCode,preorder,releaseMonth,releasePeriod,stock,combos,comboProductId,comboDiscount};
 }
 function inputData(){
  const id=trim($('product-id').value);
  return productOf({id,name:$('product-name').value,categoryName:$('product-category').value,
   price:$('product-price').value,eventPrice:$('product-event-price').value,variants:readVariants(id),active:$('product-active').checked,
-  janCode:$('product-jan').value,stock:$('product-stock').value,preorder:$('product-preorder').checked,
+  janCode:$('product-jan').value,stock:$('product-stock').value,preorder:$('product-preorder').checked,releaseMonth:$('release-month').value,releasePeriod:$('release-period').value,
   combos:readCombos(id)});
 }
 function categoryOptions(){
@@ -266,7 +274,7 @@ function productList(){
   const row=document.createElement('div');row.className='product';
   const info=document.createElement('div');info.className='product-info';
   const name=document.createElement('div');name.className='product-name';name.textContent=p.name+(p.active===false?'（非表示）':'');
-  const meta=document.createElement('div');meta.className='product-meta';meta.textContent=[p.id,p.categoryName,yen(p.price),p.eventPrice!==null&&p.eventPrice!==undefined?'展示会 '+yen(p.eventPrice):'',(p.variants||[]).length?'バリエーション '+p.variants.length+'種':''].filter(Boolean).join(' ／ ');
+  const meta=document.createElement('div');meta.className='product-meta';meta.textContent=[p.id,p.categoryName,yen(p.price),p.eventPrice!==null&&p.eventPrice!==undefined?'展示会 '+yen(p.eventPrice):'',(p.variants||[]).length?'バリエーション '+p.variants.length+'種':'',p.preorder&&p.releaseMonth?`${p.releaseMonth}月${p.releasePeriod}予定`:'',p.stock===0&&!p.preorder?'SOLD OUT':''].filter(Boolean).join(' ／ ');
   info.append(name,meta);const edit=document.createElement('button');edit.type='button';edit.textContent='編集';edit.addEventListener('click',()=>editProduct(p.id));
   const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='削除';del.addEventListener('click',()=>deleteProduct(p.id));
   row.append(info,edit,del);box.append(row);
@@ -278,12 +286,12 @@ function editProduct(id){
  $('product-id').value=p.id;$('product-id').readOnly=true;$('product-name').value=p.name;
  $('product-category').value=p.categoryName;$('product-price').value=p.price;$('product-event-price').value=p.eventPrice??'';
  showVariants((p.variants||[]).map(v=>({code:trim(v.code).startsWith(p.id+'_')?trim(v.code).slice(p.id.length+1):v.code,name:v.name,price:v.price??'',eventPrice:v.eventPrice??''})));
- $('product-jan').value=p.janCode||'';$('product-stock').value=p.stock??'';$('product-preorder').checked=p.preorder===true;
+ $('product-jan').value=p.janCode||'';$('product-stock').value=p.stock??'';$('product-preorder').checked=p.preorder===true;toggleRelease();$('release-month').value=p.releaseMonth??'';$('release-period').value=p.releasePeriod||'';
  showCombos(existingCombos(p));$('product-active').checked=p.active!==false;
  pendingImage=null;$('product-image').value='';loadSavedImage(id,++imageRevision);
  $('edit-note').textContent='編集中：'+p.id+'（商品IDは変更できません）';$('product-form').scrollIntoView({behavior:'smooth',block:'start'});
 }
-function clearForm(){ ++imageRevision;pendingImage=null;imageProcessing=false;$('product-form').reset();showVariants();showCombos();$('product-id').readOnly=false;$('product-active').checked=true;$('edit-note').textContent='新規登録';imagePreview('');$('product-image-hint').textContent='未選択の場合、登録済み画像は変更しません。';setBusy(busy);}
+function clearForm(){ ++imageRevision;pendingImage=null;imageProcessing=false;$('product-form').reset();showVariants();showCombos();toggleRelease();$('product-id').readOnly=false;$('product-active').checked=true;$('edit-note').textContent='新規登録';imagePreview('');$('product-image-hint').textContent='未選択の場合、登録済み画像は変更しません。';setBusy(busy);}
 function toFirestore(p,original){return {...p,createdAt:original?.createdAt||serverTimestamp(),updatedAt:serverTimestamp()};}
 async function saveProduct(event){
  event.preventDefault();if(busy||imageProcessing||!user)return;
@@ -319,12 +327,12 @@ async function deleteProduct(id){
  catch(err){console.error(err);status('商品を削除できませんでした。',true);}finally{setBusy(false);}
 }
 // Japanese 19-column workbook. One parent ID can span multiple variation rows; old 15-column files are also readable.
-const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)'];
+const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)','発売予定月(予約時必須)','発売予定時期(予約時必須)'];
 const sample=[
  ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','BK','カラー：ブラック','','','BG-002',500,'TB-003',300,'', ''],
  ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','KH','カラー：カーキ','','','BG-002',500,'TB-003',300,'', ''],
  ['バッグ','BG-002','キャンバスバッグ',3200,1,'','','','','','','','','','','','','',''],
- ['テーブル','TB-003','サイドテーブル',5900,1,'','','','','','','','','','','','','','']
+ ['テーブル','TB-003','サイドテーブル',5900,1,'','','','','','','','','','','','','','','','']
 ];
 function xlsx(){if(!window.XLSX)throw Error('Excelライブラリが読み込めません。通信環境を確認し、ページを再読み込みしてください。');return window.XLSX;}
 function spreadsheetRows(){
@@ -332,7 +340,7 @@ function spreadsheetRows(){
  for(const p of [...products.values()].sort((a,b)=>a.id.localeCompare(b.id,'ja'))){
   const variants=p.variants?.length?p.variants:[null];
   const combos=existingCombos(p);
-  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,p.stock??'',v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'']);
+  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,p.stock??'',v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'',p.preorder?p.releaseMonth??'':'',p.preorder?p.releasePeriod||'':'']);
  }
  return rows;
 }
@@ -345,7 +353,7 @@ function workbookFor(data){
   ['手順 3','カラーやサイズが複数ある場合、同じIDの行を増やしてサブコードとバリエーション項目を記入します。'],
   ['手順 4','サブコード欄には末尾だけ記入（例 BK）。商品ID LT-001 なら最終コード LT-001_BK になります。'],
   ['手順 5','必須：カテゴリ・ID・商品名・税込価格・表示/非表示。表示は1、非表示は0。'],
-  ['手順 6','在庫数の空欄は無制限、0は在庫0。受注予約は1なら予約、空欄または0なら通常。'],
+  ['手順 6','在庫数の空欄は無制限、0は在庫0。受注予約を1にした行には発売予定月・発売予定時期が必須。'],
   ['手順 7','JANは先頭の0が消えないよう、文字列として入力してください。金額は税込の整数円です。'],
   ['手順 8','組合せ商品は最大3件まで。商品ID1〜3と、それぞれの組合せ割引金額を入力します。'],
   ['手順 9','同一商品のバリエーション行では組合せ設定も同じ内容で繰り返してください。'],
@@ -373,12 +381,14 @@ function workbookFor(data){
   ['組合せ商品ID2(任意)','任意','2件目の組合せ商品ID（最大3件）'],
   ['組合せ時割引金額2(任意)','任意','2件目の割引金額（税込円）'],
   ['組合せ商品ID3(任意)','任意','3件目の組合せ商品ID（最大3件）'],
-  ['組合せ時割引金額3(任意)','任意','3件目の割引金額（税込円）']
+  ['組合せ時割引金額3(任意)','任意','3件目の割引金額（税込円）'],
+   ['発売予定月(予約時必須)','予約時必須','受注予約が1の場合、1～12の整数を入力。'],
+   ['発売予定時期(予約時必須)','予約時必須','受注予約が1の場合、上旬・中旬・下旬のいずれか。']
  ];
  const sheets=[['使い方',how],['商品登録',[headers,...data]],['入力例',[headers,...sample]],['項目説明',about]];
  for(const [name,rows] of sheets){
-  const ws=X.utils.aoa_to_sheet(rows);ws['!cols']= name==='商品登録'||name==='入力例'?headers.map((h,i)=>({wch:Math.min(i===10?24:21,Math.max(13,h.length+2))})):[{wch:33},{wch:90}];
-  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:S'+Math.max(2,rows.length)};
+  const ws=X.utils.aoa_to_sheet(rows);ws['!cols']= name==='商品登録'||name==='入力例'?headers.map((h,i)=>({wch:Math.min(i===10?24:24,Math.max(13,h.length+2))})):[{wch:33},{wch:90}];
+  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:U'+Math.max(2,rows.length)};
   X.utils.book_append_sheet(wb,ws,name);
  }
  return wb;
@@ -402,7 +412,7 @@ function parseWorkbook(bytes){
   if(!['0','1'].includes(active))throw Error((i+1)+'行目：表示/非表示は 0 か 1 を入力してください。');
   if(get(7)&&!['0','1'].includes(get(7)))throw Error((i+1)+'行目：受注予約は 0 か 1 を入力してください。');
   const combos=[];for(const [idCol,discountCol] of [[13,14],[15,16],[17,18]]){const toId=get(idCol),toDiscount=get(discountCol);if(toId||toDiscount)combos.push({productId:toId,discount:toDiscount||0});}
-  const base={id,categoryName:get(0),name:get(2),price:get(3),active:active==='1',janCode:get(5),eventPrice:get(6),preorder:get(7)==='1',stock:get(8),combos};
+  const base={id,categoryName:get(0),name:get(2),price:get(3),active:active==='1',janCode:get(5),eventPrice:get(6),preorder:get(7)==='1',stock:get(8),combos,releaseMonth:get(19),releasePeriod:get(20)};
   const flatKey=JSON.stringify(base);
   let entry=entries.get(id);
   if(entry&&entry.key!==flatKey)throw Error((i+1)+'行目：同じIDの基本項目が他の行と異なります。');
@@ -458,6 +468,7 @@ async function publishCatalog(){
    getDocs(coll()),getDoc(catRef()),getDoc(doc(db,'publishedCatalogs',brand.slug))
   ]);
   const source=drafts.docs.map(x=>x.data());
+  for(const p of source.filter(x=>x.active!==false && x.preorder===true))if(!Number.isInteger(p.releaseMonth)||p.releaseMonth<1||p.releaseMonth>12||!['上旬','中旬','下旬'].includes(p.releasePeriod))throw Error('予約商品「'+p.name+'」（'+p.id+'）に発売予定月・時期がありません。商品を編集して保存してください。');
   const visible=source.filter(p=>p.active!==false && /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(p.id));
   const ids=new Set(visible.map(p=>p.id));
   const categoryNames=catSnapshot.exists()&&Array.isArray(catSnapshot.data().categories)
@@ -466,7 +477,7 @@ async function publishCatalog(){
   const categoriesPublic=categoryNames.map(n=>({id:n,name:n}));
   const exposed=visible.map(p=>({
    id:p.id,name:p.name,categoryId:p.categoryName,price:p.price,
-   eventPrice:p.eventPrice??null,preorder:p.preorder===true,stock:p.stock??null,
+   eventPrice:p.eventPrice??null,preorder:p.preorder===true,releaseMonth:p.releaseMonth??null,releasePeriod:p.releasePeriod||'',stock:p.stock??null,
    variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null}))
   }));
   // Each product can propose up to 3 combinations. Keep the best discount
@@ -514,6 +525,20 @@ async function publishCatalog(){
    for(const id of removed.slice(i,i+100))batch.delete(doc(db,'publishedCatalogs',brand.slug,'images',id));
    await batch.commit();
   }
+  // Inventory is separate from the public catalog to avoid downloading large catalog documents per sale.
+  // Publishing stock from the latest private draft prevents stale client overwrites.
+  // Read private stock values INSIDE a transaction. A concurrent QR sale
+  // retries the publish instead of accidentally restoring deducted inventory.
+  await runTransaction(db,async tx=>{
+    const inventoryDocs=visible.map(p=>prodRef(p.id));
+    const stocks=await Promise.all(inventoryDocs.map(ref=>tx.get(ref)));
+    const next=Object.fromEntries(visible.map((p,i)=>[
+      p.id,stocks[i].exists()?(stocks[i].data().stock??null):null
+    ]));
+    tx.set(doc(db,'publishedStock',brand.slug),{
+      brandId:user.uid,slug:brand.slug,quantities:next,updatedAt:serverTimestamp()
+    });
+  });
   message.textContent='公開しました：商品'+exposed.length+'件／商品画像'+uploaded.length+'枚。右のリンクからお客様ページを確認してください。';
   message.className='status';
  }catch(error){
@@ -533,7 +558,9 @@ $('product-image').addEventListener('change',onImageSelected);
 $('images-import').addEventListener('change',imageBulkCheck);$('images-save').addEventListener('click',saveBulkImages);
 $('category-form').addEventListener('submit',addCategory);$('refresh-products').addEventListener('click',async()=>{if(await refresh())status('登録情報を更新しました。');});
 $('import-file').addEventListener('change',fileChanged);$('import-save').addEventListener('click',importProducts);
-$('download-xlsx').addEventListener('click',()=>downloadWorkbook('MY_EXPO_BAG_商品登録テンプレート.xlsx',[]));
+$('download-xlsx').addEventListener('click',()=>{
+  const a=document.createElement('a');a.href='./MY_EXPO_BAG_商品登録テンプレート_v1.0.1.xlsx';a.download='MY_EXPO_BAG_商品登録テンプレート.xlsx';document.body.append(a);a.click();a.remove();
+});
 $('export-xlsx').addEventListener('click',()=>downloadWorkbook('MY_EXPO_BAG_登録商品.xlsx',spreadsheetRows()));
 const configured=['apiKey','authDomain','projectId','appId'].every(k=>typeof firebase[k]==='string'&&firebase[k].trim());
 if(!configured){$('loading').textContent='Firebaseの接続設定がありません。';document.documentElement.classList.remove('auth-pending');}

@@ -36,7 +36,16 @@
     const codes=variantsOf(p).map(v=>v.code);
     return Math.min(...[...(codes.length?codes:[''])].map(code=>unitPrice(p,code)));
   };
-  const soldOut=p=>p.stock===0 && p.preorder!==true;
+  const soldOut=p=>p.stock===0;
+  const isUnavailable=p=>soldOut(p);
+  const soldOutLines=()=>cartLines().filter(line=>soldOut(line.product));
+  const checkoutStockError=()=>{
+    if(soldOutLines().length)return 'この商品は完売しました。MY BAGから削除してください。';
+    const qty=cartQtyByProduct();
+    if(cfg.products.some(p=>p.stock!==null && p.stock!==undefined && (qty[p.id]||0)>p.stock))return 'MY BAGの商品は在庫が不足しています。数量を減らしてください。';
+    return '';
+  };
+  const releaseText=p=>p.preorder&&p.releaseMonth&&['上旬','中旬','下旬'].includes(p.releasePeriod)?`${p.releaseMonth}月${p.releasePeriod}予定`:'';
   const imageTag=(p,attr='')=>`<img src="${esc(fileSafe(p.image))}" data-meb-product-image="${esc(p.id)}" alt="${esc(p.name)}" ${attr}/>`;
   const imageCache=new Map();let imageObserver=null;
   function hydrateProductPhotos(){
@@ -160,7 +169,7 @@
   const cardProduct = p => `
     <article class="product-card">
       <button class="product-cover" data-open-product="${esc(p.id)}" aria-label="${esc(p.name)}の商品ページを開く">
-        ${p.preorder?'<span class="product-tag">受注予約</span>':soldOut(p)?'<span class="product-tag">在庫なし</span>':''}
+        ${soldOut(p)?'<span class="product-tag">SOLD OUT</span>':p.preorder?'<span class="product-tag">受注予約</span>':''}
         ${imageTag(p,'loading="lazy"')}
       </button>
       <div class="product-info">
@@ -170,7 +179,7 @@
           ${fromPrice(p)<p.price?`<span class="price-original">${yen(p.price)}</span>`:''}
           <div class="price-current">${yen(fromPrice(p))}${variantsOf(p).length?'〜':''}</div>
         </div><button class="add-small" data-add="${esc(p.id)}" ${soldOut(p)?'disabled':''} aria-label="${esc(p.name)}をBAGに追加">${ICONS.plus}</button></div>
-        ${p.preorder?'<div class="price-extra">受注予約商品</div>':fromPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}
+        ${p.preorder?`<div class="price-extra">受注予約・${esc(releaseText(p))}</div>`:fromPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}
       </div>
     </article>`;
   const nav = target => { if(location.hash!==target) location.hash=target; else render(); window.scrollTo({top:0,behavior:'instant'}); };
@@ -204,7 +213,7 @@
   // Missing, empty or null discountPercent means 0%; never manufacture a discount.
   const eligibleBundles = productId => (cfg.bundles||[]).filter(b=>
     Array.isArray(b.productIds) && b.productIds.length===2 &&
-    b.productIds.includes(productId) && b.productIds.every(byId) &&
+    b.productIds.includes(productId) && b.productIds.every(id=>byId(id)&&!soldOut(byId(id))) &&
     Number.isFinite(Number(b.discountAmount)) && Number(b.discountAmount)>=0
   ).slice(0,3);
   const bundleRequired = b => {
@@ -241,9 +250,9 @@
       <div class="detail-en">${esc(category)}　／　商品ID：${esc(p.id)}</div>
       <h1 class="detail-name">${esc(p.name)}</h1>
       <div class="detail-price">${unitPrice(p,color)<normalPrice(p,color)?`<span class="detail-original">${yen(normalPrice(p,color))}</span>`:''}${yen(unitPrice(p,color))} <span style="font-size:11px;font-weight:500">税込</span></div>
-      ${p.preorder?'<div class="price-extra">受注予約商品</div>':unitPrice(p,color)<normalPrice(p,color)?'<div class="price-extra">展示会限定価格</div>':''}
+      ${soldOut(p)?'<div class="price-extra" style="color:#c02d30;font-weight:800">SOLD OUT</div>':p.preorder?`<div class="price-extra">受注予約・${esc(releaseText(p))}</div>`:unitPrice(p,color)<normalPrice(p,color)?'<div class="price-extra">展示会限定価格</div>':''}
       ${variants.length?`<section class="variants"><p class="variant-label">バリエーションを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}">${esc(v.name)}</button>`).join('')}</div></section>`:''}
-      <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true" ${soldOut(p)?'disabled':''}>${soldOut(p)?'在庫なし':'＋　MY BAGに追加する'}</button>
+      <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true" ${soldOut(p)?'disabled':''}>${soldOut(p)?'SOLD OUT':'＋　MY BAGに追加する'}</button>
       ${suggestions?`<section class="recommendations" aria-label="おすすめの組み合わせ"><div class="recommend-section-header"><span class="eyebrow">BETTER TOGETHER</span><h2>この商品と一緒にいかがですか？</h2></div><div class="recommend-list">${suggestions}</div></section>`:''}
       <div class="notice">展示品をご覧になり、必要なバリエーションを選択してください。お支払いは出展者ブースで行います。</div></div>`;
   };
@@ -256,7 +265,7 @@
       <button class="qty-btn" data-qty="${esc(line.key)}" data-step="1" aria-label="${esc(line.product.name)}を1つ増やす">+</button></div>
       ${variantsOf(line.product).length&&!line.color?`<button class="pick-color-link" data-open-product="${esc(line.id)}">バリエーションを選ぶ →</button>`:''}</div></div>`).join('');
     $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button><h1 class="page-title">MY BAG<span style="color:var(--main)">.</span></h1><p class="page-subtitle">商品とお支払い予定金額をご確認ください。</p>
-      ${itemCount()?`${itemRows}<section class="order-box"><h2 class="order-heading">ご注文内容</h2>
+      ${itemCount()?`${checkoutStockError()?`<p class="color-warning" role="alert">${esc(checkoutStockError())}</p>`:''}${itemRows}<section class="order-box"><h2 class="order-heading">ご注文内容</h2>
       <div class="order-row"><span class="order-label">通常価格 合計</span><strong>${yen(totals.listSubtotal)}</strong></div>
       ${totals.eventSaving>0?`<div class="order-row"><span class="order-label">展示会限定価格による割引</span><span class="order-positive">−${yen(totals.eventSaving)}</span></div>`:''}
       ${totals.bundles.map(b=>`<div class="order-row"><span class="order-label">セット割引：${esc(b.name)} × ${b.count}</span><span class="order-positive">−${yen(b.saving)}</span></div>`).join('')}
@@ -264,7 +273,7 @@
       ${totals.eligibleAppDiscountPercent>0?`<div class="register-offer">お名前とメール登録で <strong>さらに${totals.eligibleAppDiscountPercent}%OFF</strong><br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:''}
       <div class="tiny-text" style="text-align:right;margin-top:9px">お支払いは会場で</div></section>
       ${cfg.novelty.enabled?`<div class="gift-eligible"><strong>✦ ノベルティ特典</strong><p>${yen(cfg.novelty.minSpend)}以上のお支払いで ${esc(cfg.novelty.name)} の対象。${esc(cfg.novelty.note)}</p></div>`:''}
-      <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length?'disabled':''}>購入QRを開く　→</button><p class="helptext">お名前・メール登録で割引（設定時）。登録せず購入することもできます。<br/>実際の注文はまだ送信されません。</p></div>`:
+      <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length||checkoutStockError()?'disabled':''}>購入QRを開く　→</button><p class="helptext">お名前・メール登録で割引（設定時）。登録せず購入することもできます。<br/>実際の注文はまだ送信されません。</p></div>`:
       `<div class="empty-cart"><span class="empty-cart-emoji">▢</span><h2>MY BAGは空です</h2><p>気になった商品をBAGに追加しましょう。</p><button class="outline-btn" data-nav="#home">商品を探す　→</button></div>`}</div>`;
   };
   // This QR is an unsigned order *preview*, never proof of payment.
@@ -278,6 +287,10 @@
     d:order.appDiscountAmount,a:order.total
   });
   const renderQr=()=>{
+    if(checkoutStockError()){
+      $('#view').innerHTML=`<div class="page-body"><h1 class="page-title">購入QR</h1><p class="color-warning" role="alert">この商品は完売しました。MY BAGの内容をご確認ください。</p><button class="primary-btn" data-nav="#bag">MY BAGに戻る</button></div>`;
+      return;
+    }
     if(!state.order){$('#view').innerHTML=`<div class="page-body"><h1 class="page-title">購入QR</h1><p class="page-subtitle">購入QRは再読み込みすると消えます。<br/>MY BAGから再度発行してください。</p><button class="primary-btn" data-nav="#bag">MY BAGを見る</button></div>`;return;}
     const order=state.order;
     $('#view').innerHTML=`<div class="page-body qr-page"><button class="back-button" data-nav="#bag" style="display:flex">${ICONS.left} MY BAGに戻る</button><div class="eyebrow">CHECKOUT QR</div><h1 class="page-title" style="margin-top:9px">購入QR</h1><p class="page-subtitle">この画面を出展者スタッフに見せてください。</p>
@@ -320,12 +333,14 @@
     const {id}=fromSkuKey(key);if(!byId(id)||!Number.isInteger(delta))return;
     const old=state.cart[key]||0;
     if(delta>0 && old>=20){toast('1商品・カラーあたり20点までです');return;}
+    const prod=byId(id);if(delta>0 && prod && prod.stock!==null && prod.stock!==undefined && (cartQtyByProduct()[id]||0)>=prod.stock){toast('在庫数を超えるため追加できません');return;}
     const next=Math.max(0,Math.min(20,old+delta));
     if(next===0)delete state.cart[key];else state.cart[key]=next;
     saveCart();render();
   }
   function addItem(id,goBag=false){
-    const product=byId(id);if(!product||soldOut(product)){if(product)toast('この商品は在庫なしです');return;}
+    const product=byId(id);if(!product||soldOut(product)){if(product)toast('この商品は完売しました');return;}
+    if(product.stock!==null && product.stock!==undefined && (cartQtyByProduct()[id]||0)>=product.stock){toast('在庫数を超えるため追加できません');return;}
     if(state.pendingBundle){
       const pending=(cfg.bundles||[]).find(b=>b.id===state.pendingBundle);
       if(pending?.productIds.includes(id)){completeBundle();return;}
@@ -353,7 +368,7 @@
     }
     for(const [pid,qty] of missing){
       const key=skuKey(pid,state.selectedColors[pid]||'');
-      if((state.cart[key]||0)+qty>20){state.pendingBundle='';toast('1商品・カラーあたり20点までです');return;}
+      if((state.cart[key]||0)+qty>20 || (byId(pid).stock!==null && byId(pid).stock!==undefined && (cartQtyByProduct()[pid]||0)+qty>byId(pid).stock)){state.pendingBundle='';toast('在庫数を超えるため追加できません');return;}
     }
     for(const [pid,qty] of missing){
       const key=skuKey(pid,state.selectedColors[pid]||'');
@@ -363,12 +378,12 @@
   }
   function addBundle(id){
     const bundle=(cfg.bundles||[]).slice(0,3).find(b=>b.id===id);
-    if(!bundle||!Array.isArray(bundle.productIds)||!bundle.productIds.every(byId))return;
+    if(!bundle||!Array.isArray(bundle.productIds)||!bundle.productIds.every(pid=>byId(pid)&&!soldOut(byId(pid)))){toast('組合せの商品が完売しました');return;}
     state.pendingBundle=id;
     completeBundle();
   }
   function showCheckout(){
-    if(!itemCount()||missingColors().length)return;
+    if(!itemCount()||missingColors().length)return;const stockError=checkoutStockError();if(stockError){toast(stockError);return;}
     state.modalOpen=true;state.checkoutMode='register';
     const offer=totalCalc(true),original=totalCalc(false);
     $('#modal-root').innerHTML=`<div class="modal-backdrop" id="checkout-overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
@@ -401,7 +416,7 @@
   function closeModal(){state.modalOpen=false;$('#modal-root').innerHTML='';}
   function submitCheckout(form){
     const registered=state.checkoutMode==='register';
-    if(registered&&!form.reportValidity())return;
+    if(registered&&!form.reportValidity())return;if(checkoutStockError()){toast(checkoutStockError());return;}
     const fd=new FormData(form),name=registered?String(fd.get('name')||'').trim():'',email=registered?String(fd.get('email')||'').trim():'';
     if(registered&&(!name||!email)){$('#checkout-error').textContent='お名前とメールアドレスを入力してください。';return;}
     if(!window.crypto?.getRandomValues){$('#checkout-error').textContent='安全な注文番号を作成できません。HTTPSで開いてください。';return;}
@@ -512,5 +527,15 @@
   window.addEventListener('online',()=>checkRelease(true));
   setInterval(()=>checkRelease(),90_000);
   ensureCart();render();
+  if(typeof window.MEB_WATCH_PUBLIC_STOCK==='function')window.MEB_WATCH_PUBLIC_STOCK(quantities=>{
+    let becameSold=false;
+    for(const p of cfg.products){if(Object.prototype.hasOwnProperty.call(quantities,p.id)){
+      const previous=p.stock,now=quantities[p.id];
+      if(now===null || (Number.isInteger(now)&&now>=0))p.stock=now;
+      if(previous!==0 && p.stock===0 && cartLines().some(l=>l.id===p.id))becameSold=true;
+    }}
+    if(becameSold)toast('MY BAGの商品が完売しました。内容をご確認ください。');
+    render();
+  });
   if(window.MEB_CATALOG_REFRESH_PENDING){window.MEB_CATALOG_REFRESH_PENDING=false;window.MEB_CATALOG_REFRESH();}
 })();
