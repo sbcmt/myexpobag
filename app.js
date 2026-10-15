@@ -22,7 +22,46 @@
   const yen = n => '¥' + Math.max(0,Math.round(n)).toLocaleString('ja-JP');
   const esc = value => String(value ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const fileSafe = value => /^(\.\/|\/|https:\/\/)[\w.%/?=&#:+-]+$/i.test(value||'') ? value : '';
-  const unitPrice = p => Number.isFinite(p.eventPrice) && p.eventPrice >= 0 && p.eventPrice < p.price ? p.eventPrice : p.price;
+  const normalPrice = (p,code='') => {
+    const variant=selectedVariant(p,code);
+    return variant && Number.isFinite(variant.price) ? variant.price : p.price;
+  };
+  const unitPrice = (p,code='') => {
+    const variant=selectedVariant(p,code);
+    const normal=normalPrice(p,code);
+    const special=variant && Number.isFinite(variant.eventPrice)?variant.eventPrice:p.eventPrice;
+    return Number.isFinite(special)&&special>=0&&special<normal?special:normal;
+  };
+  const fromPrice=(p)=>{
+    const codes=variantsOf(p).map(v=>v.code);
+    return Math.min(...[...(codes.length?codes:[''])].map(code=>unitPrice(p,code)));
+  };
+  const soldOut=p=>p.stock===0 && p.preorder!==true;
+  const imageTag=(p,attr='')=>`<img src="${esc(fileSafe(p.image))}" data-meb-product-image="${esc(p.id)}" alt="${esc(p.name)}" ${attr}/>`;
+  const imageCache=new Map();let imageObserver=null;
+  function hydrateProductPhotos(){
+    imageObserver?.disconnect();imageObserver=null;
+    const fetcher=window.MEB_LOAD_PUBLIC_IMAGE;
+    if(typeof fetcher!=='function')return;
+    const targets=[...document.querySelectorAll('img[data-meb-product-image]')];
+    const apply=(id,uri)=>{if(!uri)return;for(const el of document.querySelectorAll('img[data-meb-product-image]')){
+      if(el.dataset.mebProductImage===id)el.src=uri;
+    }};
+    const load=img=>{
+      const id=img.dataset.mebProductImage;
+      if(imageCache.has(id)){const entry=imageCache.get(id);if(typeof entry==='string')apply(id,entry);return;}
+      const task=fetcher(id).then(uri=>{imageCache.set(id,uri);apply(id,uri);return uri;});
+      imageCache.set(id,task);
+    };
+    if('IntersectionObserver' in window){
+      imageObserver=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){imageObserver?.unobserve(entry.target);load(entry.target);}}},{rootMargin:'250px'});
+      for(const img of targets){
+        const cache=imageCache.get(img.dataset.mebProductImage);
+        if(typeof cache==='string'&&cache)img.src=cache;
+        else imageObserver.observe(img);
+      }
+    }else targets.forEach(load);
+  }
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
   const state = { category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
   // App updates are checked independently of the visible version (fixed at 1.0.1).
@@ -85,48 +124,53 @@
     $('meta[name="theme-color"]').content=palette.main;
   };
   const totalCalc = (registered=false) => {
-    const listSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*line.product.price,0);
-    const eventSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*unitPrice(line.product),0);
+    const listSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*normalPrice(line.product,line.color),0);
+    const eventSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*unitPrice(line.product,line.color),0);
     const remaining = cartQtyByProduct();
-    const bundles = (cfg.bundles||[]).slice(0,3).filter(b=>Array.isArray(b.productIds) && b.productIds.length>=2 && b.productIds.every(byId) && Number(b.discountPercent)>0);
-    let best={saving:0,details:[]};
-    function search(index,saving,details){
-      if(index===bundles.length){if(saving>best.saving)best={saving,details:[...details]};return;}
-      const bundle=bundles[index],required={};
-      for(const id of bundle.productIds)required[id]=(required[id]||0)+1;
-      const qtyMax=Math.min(20,...Object.entries(required).map(([id,qty])=>Math.floor((remaining[id]||0)/qty)));
-      const sum=bundle.productIds.reduce((n,id)=>n+unitPrice(byId(id)),0);
-      const eachSaving=Math.round(sum*Math.min(100,Math.max(0,Number(bundle.discountPercent)))/100);
-      for(let quantity=0;quantity<=qtyMax;quantity++){
-        if(quantity)for(const [id,qty]of Object.entries(required))remaining[id]-=qty;
-        search(index+1,saving+quantity*eachSaving,quantity?[...details,{name:bundle.name,count:quantity,saving:quantity*eachSaving}]:details);
-      }
-      for(const [id,qty]of Object.entries(required))remaining[id]=(remaining[id]||0)+qty*qtyMax;
+    // Each registered pair carries a fixed yen saving. Never apply a pair
+    // twice to the same item. Use highest saving first for a predictable total.
+    const bundles=(cfg.bundles||[]).filter(b=>Array.isArray(b.productIds) && b.productIds.length===2
+      && b.productIds.every(byId) && Number(b.discountAmount)>0)
+      .sort((a,b)=>Number(b.discountAmount)-Number(a.discountAmount));
+    const details=[];let saving=0;
+    for(const bundle of bundles){
+      const [a,b]=bundle.productIds;
+      const quantity=Math.min(remaining[a]||0,remaining[b]||0);
+      if(!quantity)continue;
+      // Clamp discounts to the item pair's current (event) prices.
+      const lines=cartLines();
+      const priceOf=id=>{
+        const matching=lines.filter(x=>x.id===id).map(x=>unitPrice(x.product,x.color));
+        return matching.length?Math.min(...matching):0;
+      };
+      const discount=Math.max(0,Math.min(Math.floor(Number(bundle.discountAmount)),priceOf(a)+priceOf(b)));
+      if(!discount)continue;
+      saving+=quantity*discount;remaining[a]-=quantity;remaining[b]-=quantity;
+      details.push({name:bundle.name,count:quantity,saving:quantity*discount});
     }
-    search(0,0,[]);
-    const beforeAppDiscount=Math.max(0,eventSubtotal-best.saving);
+    const beforeAppDiscount=Math.max(0,eventSubtotal-Math.min(eventSubtotal,saving));
     const configuredRate=Number(cfg.event?.appPurchaseDiscountPercent??0);
     const eligibleAppDiscountPercent=Number.isFinite(configuredRate)?Math.min(100,Math.max(0,configuredRate)):0;
     const appDiscountPercent=registered?eligibleAppDiscountPercent:0;
     const appDiscountAmount=Math.min(beforeAppDiscount,Math.round(beforeAppDiscount*appDiscountPercent/100));
     const total=beforeAppDiscount-appDiscountAmount;
-    return {listSubtotal,eventSubtotal,eventSaving:listSubtotal-eventSubtotal,bundleSaving:best.saving,
-      bundles:best.details,beforeAppDiscount,eligibleAppDiscountPercent,appDiscountPercent,appDiscountAmount,total};
+    return {listSubtotal,eventSubtotal,eventSaving:listSubtotal-eventSubtotal,bundleSaving:Math.min(eventSubtotal,saving),
+      bundles:details,beforeAppDiscount,eligibleAppDiscountPercent,appDiscountPercent,appDiscountAmount,total};
   };
   const cardProduct = p => `
     <article class="product-card">
       <button class="product-cover" data-open-product="${esc(p.id)}" aria-label="${esc(p.name)}の商品ページを開く">
-        ${p.tag?`<span class="product-tag">${esc(p.tag)}</span>`:''}
-        <img src="${esc(fileSafe(p.image))}" alt="${esc(p.name)}" loading="lazy"/>
+        ${p.preorder?'<span class="product-tag">受注予約</span>':soldOut(p)?'<span class="product-tag">在庫なし</span>':''}
+        ${imageTag(p,'loading="lazy"')}
       </button>
       <div class="product-info">
         <div class="product-subtitle">${esc((cfg.categories.find(c=>c.id===p.categoryId)||{}).name||'')} · ID: ${esc(p.id)}</div>
         <h3 class="product-name">${esc(p.name)}</h3>
         <div class="price-line"><div>
-          ${unitPrice(p)<p.price?`<span class="price-original">${yen(p.price)}</span>`:''}
-          <div class="price-current">${yen(unitPrice(p))}</div>
-        </div><button class="add-small" data-add="${esc(p.id)}" aria-label="${esc(p.name)}をBAGに追加">${ICONS.plus}</button></div>
-        ${unitPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}
+          ${fromPrice(p)<p.price?`<span class="price-original">${yen(p.price)}</span>`:''}
+          <div class="price-current">${yen(fromPrice(p))}${variantsOf(p).length?'〜':''}</div>
+        </div><button class="add-small" data-add="${esc(p.id)}" ${soldOut(p)?'disabled':''} aria-label="${esc(p.name)}をBAGに追加">${ICONS.plus}</button></div>
+        ${p.preorder?'<div class="price-extra">受注予約商品</div>':fromPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}
       </div>
     </article>`;
   const nav = target => { if(location.hash!==target) location.hash=target; else render(); window.scrollTo({top:0,behavior:'instant'}); };
@@ -158,12 +202,11 @@
   // is the sum of prices when bought separately at this event (including EXPO prices).
   // A recommended pair is useful even without an additional set discount.
   // Missing, empty or null discountPercent means 0%; never manufacture a discount.
-  const bundleRate = b => b.discountPercent == null || b.discountPercent === '' ? 0 : Number(b.discountPercent);
-  const eligibleBundles = productId => (cfg.bundles||[]).slice(0,3).filter(b =>
-    Array.isArray(b.productIds) && b.productIds.length >= 2 &&
+  const eligibleBundles = productId => (cfg.bundles||[]).filter(b=>
+    Array.isArray(b.productIds) && b.productIds.length===2 &&
     b.productIds.includes(productId) && b.productIds.every(byId) &&
-    Number.isFinite(bundleRate(b)) && bundleRate(b) >= 0 && bundleRate(b) <= 100
-  );
+    Number.isFinite(Number(b.discountAmount)) && Number(b.discountAmount)>=0
+  ).slice(0,3);
   const bundleRequired = b => {
     const req={};b.productIds.forEach(id=>{req[id]=(req[id]||0)+1;});return req;
   };
@@ -171,8 +214,7 @@
   const renderRecommendation = (b,p) => {
     const products=b.productIds.map(byId);
     const individualTotal=products.reduce((sum,item)=>sum+unitPrice(item),0);
-    const discountPercent=bundleRate(b);
-    const saving=Math.round(individualTotal*discountPercent/100);
+    const saving=Math.min(individualTotal,Math.max(0,Math.floor(Number(b.discountAmount)||0)));
     const discounted=saving>0;
     const setPrice=individualTotal-saving;
     const missing=bundleNeed(b);
@@ -181,7 +223,7 @@
       (missing.length < Object.keys(bundleRequired(b)).length?'足りない商品をBAGに追加':'この組み合わせをBAGに追加');
     return `<article class="recommend-card" aria-label="${esc(b.name)} の組み合わせ提案">
       <div class="recommend-topline"><span class="recommend-badge">${discounted?'まとめ買いでお得':'おすすめの組み合わせ'}</span><span class="recommend-title">${esc(b.name)}</span></div>
-      <div class="recommend-products">${products.map((item,index)=>`${index?'<span class="recommend-plus" aria-hidden="true">＋</span>':''}<div class="recommend-item"><div class="recommend-thumb"><img src="${esc(fileSafe(item.image))}" alt="" loading="lazy"/></div><span class="recommend-item-name">${esc(item.name)}</span></div>`).join('')}</div>
+      <div class="recommend-products">${products.map((item,index)=>`${index?'<span class="recommend-plus" aria-hidden="true">＋</span>':''}<div class="recommend-item"><div class="recommend-thumb">${imageTag(item,'loading="lazy"')}</div><span class="recommend-item-name">${esc(item.name)}</span></div>`).join('')}</div>
       ${discounted ? `<div class="recommend-comparison"><span>別々に買うと <s>${yen(individualTotal)}</s></span><span class="recommend-arrow" aria-hidden="true">→</span><strong>セット価格 ${yen(setPrice)}</strong></div>
       <div class="recommend-savings"><span class="recommend-savings-label">別々に買うより</span><strong>${yen(saving)} お得！</strong></div>` : `<div class="recommend-comparison recommend-comparison-regular"><span>${products.length}点で合計</span><strong>${yen(individualTotal)}</strong></div>`}
       <p class="recommend-note">${esc(b.subtitle||'')}<br/>${discounted?'展示会限定価格がある商品は、その価格を基準に計算しています。':'各商品の展示会限定価格がある場合は、その価格で合計しています。セット追加割引はありません。'}</p>
@@ -194,25 +236,25 @@
     const color=state.selectedColors[p.id]||'';
     const category=(cfg.categories.find(c=>c.id===p.categoryId)||{}).name||'未分類';
     $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button>
-      <div class="detail-cover"><img src="${esc(fileSafe(p.image))}" alt="${esc(p.name)}"/></div>
+      <div class="detail-cover">${imageTag(p)}</div>
       ${p.image2&&fileSafe(p.image2)?`<div class="detail-second"><img src="${esc(fileSafe(p.image2))}" alt="${esc(p.name)} サブ画像" loading="lazy"/></div>`:''}
       <div class="detail-en">${esc(category)}　／　商品ID：${esc(p.id)}</div>
       <h1 class="detail-name">${esc(p.name)}</h1>
-      <div class="detail-price">${unitPrice(p)<p.price?`<span class="detail-original">${yen(p.price)}</span>`:''}${yen(unitPrice(p))} <span style="font-size:11px;font-weight:500">税込</span></div>
-      ${unitPrice(p)<p.price?'<div class="price-extra">展示会限定価格</div>':''}
-      ${variants.length?`<section class="variants"><p class="variant-label">カラーを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}">${esc(v.name)}</button>`).join('')}</div></section>`:''}
-      <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true">＋　MY BAGに追加する</button>
+      <div class="detail-price">${unitPrice(p,color)<normalPrice(p,color)?`<span class="detail-original">${yen(normalPrice(p,color))}</span>`:''}${yen(unitPrice(p,color))} <span style="font-size:11px;font-weight:500">税込</span></div>
+      ${p.preorder?'<div class="price-extra">受注予約商品</div>':unitPrice(p,color)<normalPrice(p,color)?'<div class="price-extra">展示会限定価格</div>':''}
+      ${variants.length?`<section class="variants"><p class="variant-label">バリエーションを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}">${esc(v.name)}</button>`).join('')}</div></section>`:''}
+      <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true" ${soldOut(p)?'disabled':''}>${soldOut(p)?'在庫なし':'＋　MY BAGに追加する'}</button>
       ${suggestions?`<section class="recommendations" aria-label="おすすめの組み合わせ"><div class="recommend-section-header"><span class="eyebrow">BETTER TOGETHER</span><h2>この商品と一緒にいかがですか？</h2></div><div class="recommend-list">${suggestions}</div></section>`:''}
-      <div class="notice">会場の商品を見て色を選んでください。お支払いは出展者ブースで行います。</div></div>`;
+      <div class="notice">展示品をご覧になり、必要なバリエーションを選択してください。お支払いは出展者ブースで行います。</div></div>`;
   };
   const renderBag=()=>{
     const totals=totalCalc(false),needColors=missingColors();
-    const itemRows=cartLines().map(line=>`<div class="cart-item"><div class="cart-thumbnail"><img src="${esc(fileSafe(line.product.image))}" alt=""/></div><div class="cart-main"><div class="cart-title">${esc(line.product.name)}</div>
-      <div class="cart-english">ID: ${esc(line.id)}${line.color?' · '+esc(selectedVariant(line.product,line.color)?.name||line.color):(variantsOf(line.product).length?' · カラー未選択':'')}</div>
-      <div class="cart-amount">${yen(unitPrice(line.product)*line.qty)}</div><div class="qty-row"><button class="remove-btn" data-remove="${esc(line.key)}">削除</button>
+    const itemRows=cartLines().map(line=>`<div class="cart-item"><div class="cart-thumbnail">${imageTag(line.product)}</div><div class="cart-main"><div class="cart-title">${esc(line.product.name)}</div>
+      <div class="cart-english">ID: ${esc(line.id)}${line.color?' · '+esc(selectedVariant(line.product,line.color)?.name||line.color):(variantsOf(line.product).length?' · バリエーション未選択':'')}</div>
+      <div class="cart-amount">${yen(unitPrice(line.product,line.color)*line.qty)}</div><div class="qty-row"><button class="remove-btn" data-remove="${esc(line.key)}">削除</button>
       <button class="qty-btn" data-qty="${esc(line.key)}" data-step="-1" aria-label="${esc(line.product.name)}を1つ減らす">−</button><span class="qty-value">${line.qty}</span>
       <button class="qty-btn" data-qty="${esc(line.key)}" data-step="1" aria-label="${esc(line.product.name)}を1つ増やす">+</button></div>
-      ${variantsOf(line.product).length&&!line.color?`<button class="pick-color-link" data-open-product="${esc(line.id)}">カラーを選ぶ →</button>`:''}</div></div>`).join('');
+      ${variantsOf(line.product).length&&!line.color?`<button class="pick-color-link" data-open-product="${esc(line.id)}">バリエーションを選ぶ →</button>`:''}</div></div>`).join('');
     $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button><h1 class="page-title">MY BAG<span style="color:var(--main)">.</span></h1><p class="page-subtitle">商品とお支払い予定金額をご確認ください。</p>
       ${itemCount()?`${itemRows}<section class="order-box"><h2 class="order-heading">ご注文内容</h2>
       <div class="order-row"><span class="order-label">通常価格 合計</span><strong>${yen(totals.listSubtotal)}</strong></div>
@@ -222,7 +264,7 @@
       ${totals.eligibleAppDiscountPercent>0?`<div class="register-offer">お名前とメール登録で <strong>さらに${totals.eligibleAppDiscountPercent}%OFF</strong><br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:''}
       <div class="tiny-text" style="text-align:right;margin-top:9px">お支払いは会場で</div></section>
       ${cfg.novelty.enabled?`<div class="gift-eligible"><strong>✦ ノベルティ特典</strong><p>${yen(cfg.novelty.minSpend)}以上のお支払いで ${esc(cfg.novelty.name)} の対象。${esc(cfg.novelty.note)}</p></div>`:''}
-      <div class="purchase-action">${needColors.length?`<p class="color-warning">カラーが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length?'disabled':''}>購入QRを開く　→</button><p class="helptext">お名前・メール登録で割引（設定時）。登録せず購入することもできます。<br/>実際の注文はまだ送信されません。</p></div>`:
+      <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length?'disabled':''}>購入QRを開く　→</button><p class="helptext">お名前・メール登録で割引（設定時）。登録せず購入することもできます。<br/>実際の注文はまだ送信されません。</p></div>`:
       `<div class="empty-cart"><span class="empty-cart-emoji">▢</span><h2>MY BAGは空です</h2><p>気になった商品をBAGに追加しましょう。</p><button class="outline-btn" data-nav="#home">商品を探す　→</button></div>`}</div>`;
   };
   // This QR is an unsigned order *preview*, never proof of payment.
@@ -246,7 +288,7 @@
       <div style="margin-top:18px"><div class="qr-data-row"><span>登録方法</span><strong>${order.registered?'名前・メールを登録':'登録をスキップ'}</strong></div>
         ${order.registered?`<div class="qr-data-row"><span>お名前</span><strong>${esc(order.name)}</strong></div><div class="qr-data-row"><span>メール</span><strong class="email-text">${esc(order.email)}</strong></div>`:''}
         <div class="qr-data-row"><span>ご注文点数</span><strong>${order.count}点</strong></div>
-        ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.id)}${line.color?' / '+esc(line.color):''}</span><strong>×${line.qty}</strong></div>`).join('')}
+        ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.color||line.id)}</span><strong>×${line.qty}</strong></div>`).join('')}
         <div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>
         ${order.gift?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}</div>
       <div class="demo-alert"><strong>現在はデモ用です。</strong><br/>QRには注文ID・商品ID・色コード・数量・金額・割引条件が入っています。名前とメールはQRには含まれず、サーバーにも保存していません。出展者側の注文記録・CSV連携と価格検証は未実装です。このQRを実際の支払い・特典交換には使用しないでください。</div>
@@ -271,7 +313,7 @@
     if(page==='bag')renderBag();else if(page==='qr')renderQr();else if(page==='detail'){
       const p=byId(hash.slice(8));if(p)renderDetail(p);else{page='home';renderHome()}
     }else renderHome();
-    renderFloating(page);document.title=`${cfg.brand.name} | MY EXPO BAG v${cfg.version}`;
+    renderFloating(page);hydrateProductPhotos();document.title=`${cfg.brand.name} | MY EXPO BAG v${cfg.version}`;
   }
   function toast(message){const box=$('#toast');box.textContent=message;box.classList.add('show');clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>box.classList.remove('show'),1800);}
   function editCart(key,delta){
@@ -283,15 +325,15 @@
     saveCart();render();
   }
   function addItem(id,goBag=false){
-    const product=byId(id);if(!product)return;
+    const product=byId(id);if(!product||soldOut(product)){if(product)toast('この商品は在庫なしです');return;}
     if(state.pendingBundle){
       const pending=(cfg.bundles||[]).find(b=>b.id===state.pendingBundle);
       if(pending?.productIds.includes(id)){completeBundle();return;}
     }
     const variants=variantsOf(product),color=state.selectedColors[id]||'';
     if(variants.length&&!selectedVariant(product,color)){
-      if(location.hash==='#product/'+encodeURIComponent(id))toast('カラーを選択してください');
-      else{nav('#product/'+encodeURIComponent(id));toast('カラーを選択してください');}
+      if(location.hash==='#product/'+encodeURIComponent(id))toast('バリエーションを選択してください');
+      else{nav('#product/'+encodeURIComponent(id));toast('バリエーションを選択してください');}
       return;
     }
     const key=skuKey(id,color);
@@ -306,7 +348,7 @@
     const needsColor=missing.find(([pid])=>variantsOf(byId(pid)).length && !selectedVariant(byId(pid),state.selectedColors[pid]||''));
     if(needsColor){
       nav('#product/'+encodeURIComponent(needsColor[0]));
-      toast('この組み合わせのカラーを選択してください');
+      toast('この組み合わせのバリエーションを選択してください');
       return;
     }
     for(const [pid,qty] of missing){
@@ -366,7 +408,7 @@
     const bytes=new Uint8Array(10);crypto.getRandomValues(bytes);
     const id='DEMO-'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
     const totals=totalCalc(registered);
-    const items=cartLines().map(line=>({id:line.id,color:line.color,qty:line.qty}));
+    const items=cartLines().map(line=>({id:line.id,color:line.color?line.id+'_'+line.color:'',qty:line.qty}));
     state.order={id,registered,name,email,newsletterConsent:registered&&fd.get('news')==='on',createdAt:new Date().toISOString(),
       items,count:itemCount(),listSubtotal:totals.listSubtotal,eventSubtotal:totals.eventSubtotal,bundleSaving:totals.bundleSaving,
       beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,
@@ -399,6 +441,11 @@
   document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();submitCheckout(event.target);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});
   window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0,behavior:'instant'});});
+  window.MEB_CATALOG_REFRESH=()=>{
+    pendingReleaseBuild='catalog';
+    if(state.modalOpen||state.order||location.hash==='#qr')showReleaseNotice();
+    else location.reload();
+  };
   // A Home Screen PWA can retain its old document while in the background.
   // On focus / visibility / periodic checks, compare actual live files with the
   // exact ones used at boot. No manual release.json update needed.
@@ -465,4 +512,5 @@
   window.addEventListener('online',()=>checkRelease(true));
   setInterval(()=>checkRelease(),90_000);
   ensureCart();render();
+  if(window.MEB_CATALOG_REFRESH_PENDING){window.MEB_CATALOG_REFRESH_PENDING=false;window.MEB_CATALOG_REFRESH();}
 })();

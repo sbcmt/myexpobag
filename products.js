@@ -1,4 +1,4 @@
-/** MY EXPO BAG v1.0.1 — brand-owned product/category management (not yet public). */
+/** MY EXPO BAG v1.0.1 — brand-owned product management and public catalog publishing. */
 import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 import {getFirestore,collection,doc,getDoc,getDocs,writeBatch,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
@@ -16,7 +16,7 @@ const imageRef=id=>doc(db,'brands',user.uid,'productImages',id);
 const trim=v=>String(v??'').trim();
 const yen=n=>'¥'+Number(n).toLocaleString('ja-JP');
 function status(message,error=false){const e=$('status');e.textContent=message;e.className='status'+(error?' error':'');e.hidden=false;}
-function setBusy(flag){busy=flag;for(const id of ['product-save','import-save','images-save'])$(id).disabled=flag||imageProcessing||(id==='import-save'&&!importData)||(id==='images-save'&&!imagesReady.length);if(user)categoryOptions();}
+function setBusy(flag){busy=flag;for(const id of ['product-save','import-save','images-save','publish-catalog'])$(id).disabled=flag||imageProcessing||(id==='import-save'&&!importData)||(id==='images-save'&&!imagesReady.length);if(user)categoryOptions();}
 function money(value,label,optional=false){
  const v=trim(value);if(optional&&v==='')return null;
  if(!/^\d{1,9}$/.test(v)||Number(v)>100000000)throw Error(label+'は0〜100,000,000の整数で入力してください。');
@@ -445,6 +445,84 @@ async function importProducts(){
   importData=null;$('import-file').value='';$('import-preview').hidden=true;render();status(rows.length+'商品の一括登録が完了しました。');
  }catch(err){console.error(err);status('一括登録できませんでした。保存内容は更新されていません。',true);}finally{setBusy(false);}
 }
+// Publish an explicit, public-safe snapshot. Private drafts and customer info
+// are NEVER copied. Images are stored in separate read-on-demand documents.
+async function publishCatalog(){
+ if(busy||!user||!brand)return;
+ const button=$('publish-catalog'),message=$('publish-status');
+ if(!confirm('表示対象の商品をお客様ページに反映しますか？ 非表示の商品は公開しません。'))return;
+ setBusy(true);message.hidden=false;message.className='status';
+ try{
+  // Read current server data, not a potentially stale form or previous page view.
+  const [drafts,catSnapshot,oldSnapshot]=await Promise.all([
+   getDocs(coll()),getDoc(catRef()),getDoc(doc(db,'publishedCatalogs',brand.slug))
+  ]);
+  const source=drafts.docs.map(x=>x.data());
+  const visible=source.filter(p=>p.active!==false && /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(p.id));
+  const ids=new Set(visible.map(p=>p.id));
+  const categoryNames=catSnapshot.exists()&&Array.isArray(catSnapshot.data().categories)
+    ?catSnapshot.data().categories.filter(v=>typeof v==='string') : [];
+  for(const p of visible)if(!categoryNames.includes(p.categoryName))categoryNames.push(p.categoryName);
+  const categoriesPublic=categoryNames.map(n=>({id:n,name:n}));
+  const exposed=visible.map(p=>({
+   id:p.id,name:p.name,categoryId:p.categoryName,price:p.price,
+   eventPrice:p.eventPrice??null,preorder:p.preorder===true,stock:p.stock??null,
+   variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null}))
+  }));
+  // Each product can propose up to 3 combinations. Keep the best discount
+  // once when both sides define the same pair. Not an ordered purchase.
+  const pairs=new Map();
+  for(const p of visible){
+   const combos=Array.isArray(p.combos)?p.combos:(p.comboProductId?[{productId:p.comboProductId,discount:p.comboDiscount||0}]:[]);
+   for(const c of combos.slice(0,3)){
+    if(!ids.has(c.productId)||c.productId===p.id)continue;
+    const pair=[p.id,c.productId].sort();const key=pair.join('::');
+    const amount=Math.max(0,Math.floor(Number(c.discount)||0));
+    const old=pairs.get(key);
+    if(!old||amount>old.discountAmount)pairs.set(key,{id:'pair-'+pair.join('-'),name:'一緒にいかがですか？',productIds:pair,discountAmount:amount});
+   }
+  }
+  const uploaded=[];
+  for(const p of visible){
+   const imageSnap=await getDoc(imageRef(p.id));
+   if(imageSnap.exists()){
+    const image=imageSnap.data().imageData;
+    if(typeof image==='string' && image.length<=109200 && /^data:image\/(webp|jpeg);base64,/.test(image))uploaded.push({id:p.id,image});
+   }
+  }
+  message.textContent='商品画像を公開しています… '+uploaded.length+'枚';
+  // Small chunks keep within Firestore's batch write limit at 300 products.
+  for(let i=0;i<uploaded.length;i+=100){
+   const batch=writeBatch(db);
+   for(const record of uploaded.slice(i,i+100))batch.set(
+    doc(db,'publishedCatalogs',brand.slug,'images',record.id),
+    {productId:record.id,imageData:record.image,updatedAt:serverTimestamp()}
+   );
+   await batch.commit();
+  }
+  // Write the public index AFTER images, so a reader never sees a new
+  // public product with an image pointer that has not been uploaded yet.
+  await (async()=>{const batch=writeBatch(db);
+   batch.set(doc(db,'publishedCatalogs',brand.slug),{
+    brandId:user.uid,slug:brand.slug,products:exposed,categories:categoriesPublic,
+    bundles:[...pairs.values()],publishedImageIds:uploaded.map(x=>x.id),updatedAt:serverTimestamp()
+   });await batch.commit();})();
+  const previous=oldSnapshot.exists()&&Array.isArray(oldSnapshot.data().publishedImageIds)?oldSnapshot.data().publishedImageIds:[];
+  const removed=previous.filter(id=>!uploaded.some(p=>p.id===id));
+  for(let i=0;i<removed.length;i+=100){
+   const batch=writeBatch(db);
+   for(const id of removed.slice(i,i+100))batch.delete(doc(db,'publishedCatalogs',brand.slug,'images',id));
+   await batch.commit();
+  }
+  message.textContent='公開しました：商品'+exposed.length+'件／商品画像'+uploaded.length+'枚。右のリンクからお客様ページを確認してください。';
+  message.className='status';
+ }catch(error){
+  console.error('公開エラー',error);
+  message.textContent='公開できませんでした：'+(error.code==='permission-denied'?'Firestoreのルールを確認してください。':error.message||'通信や容量の制限をご確認ください。');
+  message.className='status error';
+ }finally{setBusy(false);}
+}
+$('publish-catalog').addEventListener('click',publishCatalog);
 async function refresh(){if(!user)return;try{
  const [catSnap,prodSnap]=await Promise.all([getDoc(catRef()),getDocs(coll())]);
  categories=catSnap.exists()&&Array.isArray(catSnap.data().categories)?catSnap.data().categories.filter(x=>typeof x==='string'):[];
@@ -465,7 +543,7 @@ else try{
   if(!u){location.replace(loginUrl);return;}
   try{const snap=await getDoc(doc(db,'brands',u.uid));if(!snap.exists()){location.replace(brandSetupUrl);return;}
    const b=snap.data();if(b.ownerUid!==u.uid||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.slug))throw Error('brand mismatch');
-   user=u;brand=b;$('brand-label').textContent=b.displayName+'　｜　v1.0.1';await refresh();$('loading').hidden=true;$('shell').hidden=false;document.documentElement.classList.remove('auth-pending');
+   user=u;brand=b;$('brand-label').textContent=b.displayName+'　｜　v1.0.1';const publicLink=new URL('./index.html',location.href);publicLink.searchParams.set('brand',b.slug);$('public-customer-link').href=publicLink.href;await refresh();$('loading').hidden=true;$('shell').hidden=false;document.documentElement.classList.remove('auth-pending');
   }catch(err){console.error(err);$('loading').textContent='ブランド情報を読み込めません。Firestoreルールをご確認ください。';document.documentElement.classList.remove('auth-pending');}
  },()=>{$('loading').textContent='ログイン情報を確認できませんでした。';document.documentElement.classList.remove('auth-pending');});
 }catch(err){$('loading').textContent='Firebaseを読み込めませんでした。';document.documentElement.classList.remove('auth-pending');}

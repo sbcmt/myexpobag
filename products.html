@@ -14,7 +14,11 @@
 <main>
 <div id="loading" class="notice">ログインとブランド情報を確認しています…</div>
 <div id="shell" hidden>
-<div class="notice">商品情報・商品画像をブランド専用の領域に保存できます。<strong>お客様ページへの商品公開</strong>は次工程で接続します。現在はまだ来場者には表示されません。</div>
+<div class="notice">商品情報はまず管理画面に保存されます。公開したい内容が揃ったら、下の「お客様ページに反映」を押してください。非表示の商品はお客様ページに出ません。</div>
+<section class="card" aria-label="公開操作"><div class="toolbar"><h2>お客様ページへの反映</h2><span class="pill">ブランド別</span></div>
+<p class="muted">登録した商品・カテゴリ・画像・組合せ設定を公開します。保存後に商品を編集した場合も、もう一度反映してください。予約商品は「受注予約」と表示されます。</p>
+<div class="row"><button type="button" class="primary" id="publish-catalog">お客様ページに反映</button><a id="public-customer-link" target="_blank" rel="noopener noreferrer" href="./index.html">お客様ページを別タブで確認 ↗</a></div>
+<p id="publish-status" class="status" hidden role="status" aria-live="polite"></p></section>
 <p class="status" id="status" hidden role="status" aria-live="polite"></p>
 <section class="card"><div class="toolbar"><h2>カテゴリ設定</h2><span class="pill" id="category-count">0件</span></div>
 <div class="category-list" id="categories"></div>
@@ -36,7 +40,7 @@
 <div class="field"><label for="product-image">商品画像（任意・商品IDごとに1枚）</label>
 <div class="image-line"><img class="photo-preview" id="product-image-preview" alt="商品画像プレビュー" hidden><div><input id="product-image" type="file" accept="image/*,.heic,.heif" style="max-width:310px"><div class="image-note" id="product-image-hint">未選択の場合、登録済み画像は変更しません。</div></div></div>
 <p class="muted">スマホの写真も選択可能。元画像15MB以下 → 長辺最大800px・保存画像80KB以下へ自動圧縮します。写真が選択されていない場合、商品の画像は変更しません。</p></div>
-<label class="checkline"><input type="checkbox" id="product-active" checked> この商品を表示対象にする（公開連携後に使用）</label>
+<label class="checkline"><input type="checkbox" id="product-active" checked> この商品をお客様ページに表示する（公開時に反映）</label>
 <div class="row"><button class="primary" type="submit" id="product-save">商品を保存</button><button type="button" id="product-clear">入力をクリア</button><span class="muted" id="edit-note">新規登録</span></div>
 </form></section>
 <section class="card"><div class="toolbar"><h2>登録済み商品 <span id="product-count">0</span>件</h2><button id="refresh-products" type="button">一覧を更新</button></div><div id="product-list" class="product-list"><p class="muted">商品はまだ登録されていません。</p></div></section>
@@ -90,5 +94,5 @@
   },15000);
 })();
 </script>
-<script type="module" src="./products.js?asset=20261015-product-screen-fix" onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()"></script>
+<script type="module" src="./products.js?asset=20261015-customer-publish-01" onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()"></script>
 </body></html>

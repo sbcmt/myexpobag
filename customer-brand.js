@@ -7,13 +7,13 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   }
   const firebase=window.MEB_FIREBASE_CONFIG||{};
   if(!firebase.apiKey||!firebase.projectId||!firebase.appId)fail('ブランド情報の接続設定が見つかりません。');
-  const [{initializeApp,getApps,getApp},{getFirestore,doc,getDoc}]=await Promise.all([
+  const [{initializeApp,getApps,getApp},{getFirestore,doc,getDoc,onSnapshot}]=await Promise.all([
     import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js'),
     import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js')
   ]);
   const app=getApps().length?getApp():initializeApp(firebase);
   const db=getFirestore(app);
-  let handle,catalog;
+  let handle,catalog,publishedTime=0;
   try{
     // Both reads are documents scoped to the exact URL brand slug.
     const [handleSnap,catalogSnap]=await Promise.all([
@@ -23,6 +23,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
     if(!handleSnap.exists())fail('指定されたブランドは見つかりません。URLをご確認ください。');
     handle=handleSnap.data();
     catalog=catalogSnap.exists()?catalogSnap.data():null;
+    publishedTime=catalogSnap.updateTime?.toMillis?.()||0;
   }catch(error){
     if(error.customerMessage)throw error;
     fail('ブランド情報を確認できません。通信環境、またはFirestoreの公開設定をご確認ください。');
@@ -30,10 +31,43 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   if(handle.slug!==slug || !handle.brandId)fail('ブランド情報に不整合があります。');
   // Existing brands created before public display names were enabled are
   // published on their next authenticated admin visit. Never use FIELDNOTE.
+  // Live publication notice for an already-open standalone home-screen app.
+  // Checkout QR and registration inputs are never force-dismissed.
+  try{
+    onSnapshot(doc(db,'publishedCatalogs',slug),snapshot=>{
+      if(snapshot.metadata.fromCache)return;
+      const next=snapshot.updateTime?.toMillis?.()||0;
+      if(next!==publishedTime){
+        publishedTime=next;
+        if(typeof window.MEB_CATALOG_REFRESH==='function')window.MEB_CATALOG_REFRESH();
+        else window.MEB_CATALOG_REFRESH_PENDING=true;
+      }
+    },error=>console.warn('商品更新の購読に失敗',error));
+  }catch(error){console.warn('商品更新の確認に失敗',error);}
   const name=typeof handle.displayName==='string'&&handle.displayName.trim()?handle.displayName.trim():'ブランド公開準備中';
+  // Published catalog is a deliberate public snapshot. Private drafts and
+  // the demo FIELDNOTE catalog are never used as fallback.
   const products=Array.isArray(catalog?.products)?catalog.products.filter(p=>
-    p && typeof p.id==='string' && typeof p.name==='string' && typeof p.price==='number' && p.price>=0
-  ):[];
+    p && typeof p.id==='string' && typeof p.name==='string' &&
+    typeof p.price==='number' && Number.isFinite(p.price) && p.price>=0 &&
+    typeof p.categoryId==='string'
+  ).map(p=>({...p,image:'./assets/product-placeholder.svg',
+    variants:Array.isArray(p.variants)?p.variants:[]})):[];
+  const allowedImages=new Set(Array.isArray(catalog?.publishedImageIds)?catalog.publishedImageIds:[]);
+  const imagePromises=new Map();
+  window.MEB_LOAD_PUBLIC_IMAGE=(productId)=>{
+    if(!allowedImages.has(productId))return Promise.resolve('');
+    if(!imagePromises.has(productId)){
+      const promise=getDoc(doc(db,'publishedCatalogs',slug,'images',productId))
+        .then(s=>{
+          const data=s.exists()?s.data().imageData:'';
+          return typeof data==='string' && data.length<=109200 &&
+            /^data:image\/(?:jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(data)?data:'';
+        }).catch(error=>{console.warn('商品画像の読み込みに失敗',productId,error);return '';});
+      imagePromises.set(productId,promise);
+    }
+    return imagePromises.get(productId);
+  };
   const categories=Array.isArray(catalog?.categories)?catalog.categories:[];
   const bundles=Array.isArray(catalog?.bundles)?catalog.bundles:[];
   // Do not use demo discounts/novelties from config.js. No published settings = no promo.
