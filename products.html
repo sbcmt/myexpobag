@@ -33,7 +33,7 @@
 <div class="variant-block"><div class="toolbar"><strong>バリエーション（任意）</strong><span class="muted">カラー・サイズなど／画像は商品共通</span></div>
 <div id="variant-rows"></div><button type="button" id="add-variant">＋ バリエーションを追加</button>
 <p class="hint">最初は3行表示します。使わない行は空欄のままで大丈夫です。サブコードは <code>BK</code> のような末尾だけを入力してください。<code>商品ID_BK</code> を自動生成します。</p></div>
-<div class="cols"><div class="field"><label for="product-jan">JANコード（任意）</label><input id="product-jan" inputmode="numeric" maxlength="14" placeholder="例：4901234567894"></div><div class="field"><label for="product-stock">商品全体の在庫数（任意・全カラーの合計上限）</label><input id="product-stock" type="number" min="0" max="100000000" step="1" placeholder="空欄は上限なし。バリエーション別在庫はバリエーション欄で設定"></div></div>
+<div class="cols"><div class="field"><label for="product-jan">JANコード（任意）</label><input id="product-jan" inputmode="numeric" maxlength="14" placeholder="例：4901234567894"></div><div class="field"><label for="product-stock">商品全体の在庫数（バリエーション在庫の合計）</label><input id="product-stock" type="number" min="0" max="100000000" step="1" placeholder="バリエーション別在庫を入力すると自動計算"><p class="hint" id="product-stock-hint" aria-live="polite">バリエーションなしの商品は手入力できます。空欄は上限なしです。</p></div></div>
 <label class="checkline"><input id="product-preorder" type="checkbox"> 受注予約の商品にする</label>
 <div id="release-settings" class="variant-block" hidden><div class="toolbar"><strong>発売予定（受注予約の場合は必須）</strong></div>
 <div class="cols"><div class="field"><label for="release-month">発売予定月</label><select id="release-month"><option value="">月を選択</option></select></div>
@@ -99,5 +99,5 @@
   },15000);
 })();
 </script>
-<script type="module" src="./products.js?asset=20261015-sku-stock-02" onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()"></script>
+<script type="module" src="./products.js?asset=20261015-stock-total-sync-01" onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()"></script>
 </body></html>
