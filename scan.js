@@ -72,9 +72,12 @@ function checkStock(parsed,stock,privateMap=null){
  const variantQuantities=stock.variantQuantities||{};
  for(const [id,qty] of parsed.counts){
   if(!Object.prototype.hasOwnProperty.call(quantities,id))throw Error('在庫情報が未設定の商品です：'+id);
-  if(quantities[id]!==null&&(!Number.isInteger(quantities[id])||quantities[id]<qty))throw Error('共通在庫が不足しています：'+id+'（必要 '+qty+'点）');
-  if(privateMap){const p=privateMap.get(id);if(!p||p.active===false)throw Error('販売できない商品です：'+id);
-   if(p.stock!==null&&(!Number.isInteger(p.stock)||p.stock<qty))throw Error('共通在庫が不足しています（管理側）：'+id);
+  const p=privateMap?.get(id);
+  if(privateMap&&(!p||p.active===false))throw Error('販売できない商品です：'+id);
+  const hasVariants=Array.isArray(p?.variants)&&p.variants.length>0;
+  if(!hasVariants&&quantities[id]!==null&&(!Number.isInteger(quantities[id])||quantities[id]<qty))throw Error('在庫が不足しています：'+id+'（必要 '+qty+'点）');
+  if(privateMap){
+   if(!hasVariants&&p.stock!==null&&(!Number.isInteger(p.stock)||p.stock<qty))throw Error('在庫が不足しています（管理側）：'+id);
   }
  }
  for(const item of parsed.items){
@@ -197,7 +200,8 @@ async function reserveAtScan(parsed,quote){
   const newVariantQuantities={...(stock.variantQuantities||{})};
   for(const [id,qty] of counts){
    const privateProduct=privateMap.get(id);
-   if(Number.isInteger(newQuantities[id]))newQuantities[id]-=qty;
+   if(!(privateProduct.variants||[]).length && Number.isInteger(newQuantities[id]))newQuantities[id]-=qty;
+   else if((privateProduct.variants||[]).length)newQuantities[id]=null;
    const newVariants=(privateProduct.variants||[]).map(v=>({...v}));
    let variantChanged=false;
    for(const item of items.filter(x=>x.id===id && x.variant)){
@@ -208,7 +212,8 @@ async function reserveAtScan(parsed,quote){
    }
    if(Number.isInteger(privateProduct.stock)||variantChanged){
     const update={updatedAt:serverTimestamp()};
-    if(Number.isInteger(privateProduct.stock))update.stock=privateProduct.stock-qty;
+    if((privateProduct.variants||[]).length)update.stock=null;
+    else if(Number.isInteger(privateProduct.stock))update.stock=privateProduct.stock-qty;
     if(variantChanged)update.variants=newVariants;
     tx.update(productRefs[ids.indexOf(id)],update);
    }
@@ -266,9 +271,12 @@ async function cancelLine(key,all=false){
    ids.forEach((id,i)=>{
     if(!(id in next))throw Error('在庫情報が見つかりません：'+id);
     const qty=totals.get(id),current=next[id];
-    if(current!==null){if(!Number.isInteger(current)||current+qty>100000000)throw Error('在庫の復元数が不正です');next[id]=current+qty;}
+    // Parent stock does not control variants. Handle unvarianted items below, after reading product.
+    if(current!==null&&!Number.isInteger(current))throw Error('在庫の復元数が不正です');
     if(!privateSnaps[i].exists())throw Error('元の商品が見つかりません：'+id);
     const priv=privateSnaps[i].data();
+    if(!(priv.variants||[]).length && current!==null){if(current+qty>100000000)throw Error('在庫の復元数が不正です');next[id]=current+qty;}
+    else if((priv.variants||[]).length)next[id]=null;
     const revised=(priv.variants||[]).map(v=>({...v}));
     let variantChanged=false;
     for(const line of removed.filter(x=>x.id===id && x.variant)){
@@ -284,7 +292,8 @@ async function cancelLine(key,all=false){
     }
     if(Number.isInteger(priv.stock)||variantChanged){
      const update={updatedAt:serverTimestamp()};
-     if(Number.isInteger(priv.stock)){if(priv.stock+qty>100000000)throw Error('商品在庫が上限を超えます');update.stock=priv.stock+qty;}
+     if((priv.variants||[]).length)update.stock=null;
+     else if(Number.isInteger(priv.stock)){if(priv.stock+qty>100000000)throw Error('商品在庫が上限を超えます');update.stock=priv.stock+qty;}
      if(variantChanged)update.variants=revised;
      tx.update(productRefs[i],update);
     }

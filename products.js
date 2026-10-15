@@ -137,8 +137,8 @@ async function saveBulkImages(){
 }
 const MAX_VARIANTS=100;
 // A completely specified set of variant stocks determines the total available
-// stock for this product. Empty variation rows are ignored. If any configured
-// variation has unlimited/blank stock, keep the optional independent parent cap.
+// stock for this product (informational only). An item with variants is
+// sellable exclusively according to its individual variant stock, never parent stock.
 function totalOfVariantStocks(variants){
  if(!variants.length)return null;
  let sum=0;
@@ -167,12 +167,15 @@ function updateTotalStockField(){
   if(!totalAutoMode)manualTotalDraft=input.value;
   input.value=String(sum);input.readOnly=true;totalAutoMode=true;
   input.setAttribute('aria-readonly','true');
-  hint.textContent='バリエーション別在庫の合計を自動計算しています（'+variants.length+'種類）。個別在庫の変更に連動します。';
+  hint.textContent='参考表示：各バリエーションの合計 '+sum+'個。販売可否はカラー別の在庫だけで判定します。';
  }else{
-  if(totalAutoMode)input.value=manualTotalDraft;
-  totalAutoMode=false;input.readOnly=false;input.removeAttribute('aria-readonly');
-  hint.textContent=variants.length||incomplete
-   ?'在庫が空欄のバリエーションは上限なしです。全種類に数量を入れると合計を自動計算します。現在は商品全体の上限を任意で入力できます。'
+  const hasVariants=variants.length>0||incomplete;
+  if(totalAutoMode)input.value=hasVariants?'':manualTotalDraft;
+  totalAutoMode=false;input.readOnly=hasVariants;
+  if(hasVariants){input.value='';input.setAttribute('aria-readonly','true');}
+  else input.removeAttribute('aria-readonly');
+  hint.textContent=hasVariants
+   ?'各バリエーションの在庫だけで購入可否を判定します。在庫未設定のカラーがあるため合計表示できません。'
    :'バリエーションなしの商品はここで在庫を入力します。空欄は上限なしです。';
  }
 }
@@ -287,8 +290,7 @@ function productOf(fields){
  });
  if(new Set(variants.map(v=>v.code)).size!==variants.length)throw Error(id+'：サブコードが重複しています。');
  const janCode=trim(fields.janCode??'');if(janCode&&!/^\d{8,14}$/.test(janCode))throw Error(id+'：JANコードは8〜14桁の数字にしてください。');
- const summed=totalOfVariantStocks(variants);
- const stock=summed!==null?summed:money(fields.stock??'',id+'の在庫数',true);
+ const stock=variants.length?null:money(fields.stock??'',id+'の在庫数',true); // SKU商品は総在庫を販売制限に使わない
    const preorder=fields.preorder===true;
    const releaseMonth=preorder?Number(fields.releaseMonth):null;
    const releasePeriod=preorder?trim(fields.releasePeriod):'';
@@ -325,7 +327,7 @@ function productList(){
   const row=document.createElement('div');row.className='product';
   const info=document.createElement('div');info.className='product-info';
   const name=document.createElement('div');name.className='product-name';name.textContent=p.name+(p.active===false?'（非表示）':'');
-  const meta=document.createElement('div');meta.className='product-meta';meta.textContent=[p.id,p.categoryName,yen(p.price),p.eventPrice!==null&&p.eventPrice!==undefined?'展示会 '+yen(p.eventPrice):'',(p.variants||[]).length?'バリエーション '+p.variants.length+'種':'',p.preorder&&p.releaseMonth?`${p.releaseMonth}月${p.releasePeriod}予定`:'',p.stock===0&&!p.preorder?'SOLD OUT':''].filter(Boolean).join(' ／ ');
+  const meta=document.createElement('div');meta.className='product-meta';meta.textContent=[p.id,p.categoryName,yen(p.price),p.eventPrice!==null&&p.eventPrice!==undefined?'展示会 '+yen(p.eventPrice):'',(p.variants||[]).length?'バリエーション '+p.variants.length+'種':'',p.preorder&&p.releaseMonth?`${p.releaseMonth}月${p.releasePeriod}予定`:'',(p.variants||[]).length?((p.variants||[]).every(v=>v.stock===0)?'SOLD OUT':''):(p.stock===0?'SOLD OUT':''),].filter(Boolean).join(' ／ ');
   info.append(name,meta);const edit=document.createElement('button');edit.type='button';edit.textContent='編集';edit.addEventListener('click',()=>editProduct(p.id));
   const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='削除';del.addEventListener('click',()=>deleteProduct(p.id));
   row.append(info,edit,del);box.append(row);
@@ -391,7 +393,7 @@ function spreadsheetRows(){
  for(const p of [...products.values()].sort((a,b)=>a.id.localeCompare(b.id,'ja'))){
   const variants=p.variants?.length?p.variants:[null];
   const combos=existingCombos(p);
-  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,p.stock??'',v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'',p.preorder?p.releaseMonth??'':'',p.preorder?p.releasePeriod||'':'',v?.stock??'']);
+  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,(p.variants||[]).length?(totalOfVariantStocks(p.variants)??''):(p.stock??''),v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'',p.preorder?p.releaseMonth??'':'',p.preorder?p.releasePeriod||'':'',v?.stock??'']);
  }
  return rows;
 }
@@ -404,7 +406,7 @@ function workbookFor(data){
   ['手順 3','カラーやサイズが複数ある場合、同じIDの行を増やしてサブコードとバリエーション項目を記入します。'],
   ['手順 4','サブコード欄には末尾だけ記入（例 BK）。商品ID LT-001 なら最終コード LT-001_BK になります。'],
   ['手順 5','必須：カテゴリ・ID・商品名・税込価格・表示/非表示。表示は1、非表示は0。'],
-  ['手順 6','全バリエーションに在庫数を記入すると、商品全体の在庫数は自動的に合計されます。一部が空欄なら個別SKUは上限なし、全体の上限は任意入力です。0は完売。'],
+  ['手順 6','バリエーションがある商品は各カラー・サイズの在庫だけで購入可否を判定します。全体在庫は参考合計で購入制限に使いません。SKU在庫0はその選択肢のみ完売。'],
   ['手順 7','JANは先頭の0が消えないよう、文字列として入力してください。金額は税込の整数円です。'],
   ['手順 8','組合せ商品は最大3件まで。商品ID1〜3と、それぞれの組合せ割引金額を入力します。'],
   ['手順 9','同一商品のバリエーション行では組合せ設定も同じ内容で繰り返してください。'],
@@ -422,7 +424,7 @@ function workbookFor(data){
   ['JANコード(任意)','任意','8〜14桁の数値文字列。'],
   ['展示会特価(任意)','任意','通常の税込価格より安い整数円。'],
   ['受注予約(任意)','任意','1 = 予約 / 0または空欄 = 通常'],
-  ['在庫数(任意)','任意','バリエーション在庫を全件入力した場合は自動合計。未設定のSKUがあれば全体上限を任意で入力可。'],
+  ['在庫数(任意)','任意','バリエーションなしの商品だけに適用。バリエーション付き商品の総在庫値は参考用で、購入制限に使用しません。'],
   ['バリエーション在庫数(任意)','任意','各サブコードの個別在庫。空欄は無制限、0は完売。'],
   ['サブコード(任意)','任意','末尾のみ（例 BK）。商品ID_ を自動で付けます。'],
   ['バリエーション項目(任意)','任意','例：カラー：ブラック、サイズ：M'],
@@ -529,7 +531,7 @@ async function publishCatalog(){
   const categoriesPublic=categoryNames.map(n=>({id:n,name:n}));
   const exposed=visible.map(p=>({
    id:p.id,name:p.name,categoryId:p.categoryName,price:p.price,
-   eventPrice:p.eventPrice??null,preorder:p.preorder===true,releaseMonth:p.releaseMonth??null,releasePeriod:p.releasePeriod||'',stock:p.stock??null,
+   eventPrice:p.eventPrice??null,preorder:p.preorder===true,releaseMonth:p.releaseMonth??null,releasePeriod:p.releasePeriod||'',stock:(p.variants||[]).length?null:(p.stock??null),
    variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null,stock:v.stock??null}))
   }));
   // Each product can propose up to 3 combinations. Keep the best discount
@@ -585,7 +587,7 @@ async function publishCatalog(){
     const inventoryDocs=visible.map(p=>prodRef(p.id));
     const stocks=await Promise.all(inventoryDocs.map(ref=>tx.get(ref)));
     const next=Object.fromEntries(visible.map((p,i)=>[
-      p.id,stocks[i].exists()?(stocks[i].data().stock??null):null
+      p.id,stocks[i].exists()&&!(stocks[i].data().variants||[]).length?(stocks[i].data().stock??null):null
     ]));
     const variantQuantities={};
     visible.forEach((p,i)=>{
