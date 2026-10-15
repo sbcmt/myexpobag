@@ -145,6 +145,7 @@
   const discountEligible=(subtotal)=>{const offer=discountOffer();return offer.mode!=='none' && subtotal>=offer.minSpend;};
   const discountCondition=()=>{const d=discountOffer();return d.minSpend>0?`（税込${yen(d.minSpend)}以上が対象）`:'';};
   const discountText=()=>{const d=discountOffer();return d.mode==='percent'?`${d.value}%OFF`:d.mode==='amount'?`${yen(d.value)}引き`:'';};
+  // Gift thresholds use the tax-included total AFTER combo discounts, BEFORE app discounts.
   const giftFor=(amount,lines=cartLines())=>{const n=cfg.novelty||{};return n.enabled && (n.mode==='all'||n.mode==='minimum'&&amount>=n.minSpend||n.mode==='product'&&lines.some(line=>line.id===n.productId));};
   const giftTag=p=>cfg.novelty?.enabled&&cfg.novelty.mode==='product'&&cfg.novelty.productId===p.id?'<span class="novelty-tag">ノベルティ対象商品</span>':'';
   const giftCaution='ノベルティの数量には限りがあります。なくなり次第終了します';
@@ -280,7 +281,7 @@
   };
   const renderBag=()=>{
     const totals=totalCalc(false),needColors=missingColors();
-    const itemRows=cartLines().map(line=>`<div class="cart-item"><div class="cart-thumbnail">${imageTag(line.product)}</div><div class="cart-main"><div class="cart-title">${esc(line.product.name)}</div>
+    const itemRows=cartLines().map(line=>`<div class="cart-item"><div class="cart-thumbnail">${imageTag(line.product)}</div><div class="cart-main"><div class="cart-title">${esc(line.product.name)}${giftTag(line.product)}</div>
       <div class="cart-english">ID: ${esc(line.id)}${line.color?' · '+esc(selectedVariant(line.product,line.color)?.name||line.color):(variantsOf(line.product).length?' · バリエーション未選択':'')}</div>
       <div class="cart-amount">${yen(unitPrice(line.product,line.color)*line.qty)}</div><div class="qty-row"><button class="remove-btn" data-remove="${esc(line.key)}">削除</button>
       <button class="qty-btn" data-qty="${esc(line.key)}" data-step="-1" aria-label="${esc(line.product.name)}を1つ減らす">−</button><span class="qty-value">${line.qty}</span>
@@ -467,7 +468,7 @@
       items,count:itemCount(),listSubtotal:totals.listSubtotal,eventSubtotal:totals.eventSubtotal,bundleSaving:totals.bundleSaving,
       beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,appDiscountMode:totals.appDiscountMode,
       appDiscountAmount:totals.appDiscountAmount,total:totals.total,
-      gift:giftFor(totals.total)};
+      gift:giftFor(totals.beforeAppDiscount)};
     cancelOrderConfirmation();cancelOrderConfirmation=()=>{};
     const watchedId=id;
     if(typeof window.MEB_WATCH_ORDER_CONFIRMATION==='function'){

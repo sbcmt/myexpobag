@@ -107,7 +107,7 @@ function checkStock(parsed,stock,privateMap=null){
 }
 // All prices are frozen at first reservation. Subsequent cancellations recalculate
 // using the originally accepted SKU prices and pair discounts, never today's catalog.
-function reprice(lines,bundles,offer={}){
+function reprice(lines,bundles,offer={},beforeAppDiscountOnly=false){
  const counts=new Map(), prices=new Map();let subtotal=0;
  for(const x of lines){
   subtotal+=x.unitPrice*x.qty;
@@ -125,17 +125,19 @@ function reprice(lines,bundles,offer={}){
   counts.set(a,counts.get(a)-pairs);counts.set(b,counts.get(b)-pairs);
  }
  const base=Math.max(0,subtotal-Math.min(subtotal,saving));
+ if(beforeAppDiscountOnly)return base;
  const active=offer.discountRegistered===true;
  const value=Number(offer.discountValue)||0;
  const eligible=active&&base>=Math.max(0,Number(offer.discountMinSpend)||0);
  const discount=eligible&&offer.discountMode==='percent'?Math.min(base,Math.round(base*value/100)):eligible&&offer.discountMode==='amount'?Math.min(base,value):0;
  return base-discount;
 }
+// Show novelty using the pre-app-discount subtotal; maintain this after item cancellation.
 function giftLabel(order){
  const lines=order.lines||order.remainingLines||[];
  if(!lines.length)return '';
  const mode=order.noveltyMode;
- const eligible=mode==='all'||mode==='minimum'&&order.amount>=order.noveltyMinSpend||mode==='product'&&lines.some(x=>x.id===order.noveltyProductId);
+ const eligible=mode==='all'||mode==='minimum'&&reprice(lines,order.bundles||[],order,true)>=order.noveltyMinSpend||mode==='product'&&lines.some(x=>x.id===order.noveltyProductId);
  return eligible?'ノベルティ対象：'+(order.noveltyName||'ノベルティ'):'';
 }
 function refreshGift(order){for(const id of ['review-gift','prepared-gift']){const el=$(id);if(!el)continue;const name=giftLabel(order);el.textContent=name;el.hidden=!name;}}
@@ -268,7 +270,7 @@ async function loadQr(text){
   if(!snap.exists()||snap.data().brandId!==user.uid)throw Error('このブランドの商品公開が未完了です。');
   const quote=calculate(parsed,snap.data(),settingSnap.exists()&&settingSnap.data().brandId===user.uid?settingSnap.data():{});
   const result=await reserveAtScan(parsed,quote);
-  acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
+  acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,bundles:result.data.bundles||[],discountMode:result.data.discountMode,discountValue:result.data.discountValue,discountMinSpend:result.data.discountMinSpend,discountRegistered:result.data.discountRegistered,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
  }catch(err){console.error(err);say(err.message||'在庫確保に失敗しました。',true);candidate=null;}
  finally{working=false;document.querySelectorAll('.cancel-line').forEach(b=>b.disabled=false);if(stage==='scan'&&user){$('camera-start').disabled=false;$('manual-scan').disabled=false;}}
 }
