@@ -76,7 +76,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
     return onSnapshot(doc(db,'publicOrderConfirmations',slug,'orders',orderId),snapshot=>{
       if(!snapshot.exists())return;
       const data=snapshot.data();
-      if(data.slug===slug && data.orderId===orderId && data.status==='confirmed')notify();
+      if(data.slug===slug && data.orderId===orderId && ['confirmed','cancelled'].includes(data.status))notify(data);
     },error=>{
       console.warn('購入確認の同期に失敗しました',error);
       if(typeof onError==='function')onError(error);

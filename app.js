@@ -293,13 +293,16 @@
     // presenting customer has lost their item. Consult the order acknowledgement.
     if(!state.order){$('#view').innerHTML=`<div class="page-body"><h1 class="page-title">購入QR</h1><p class="page-subtitle">購入QRは再読み込みすると消えます。<br/>MY BAGから再度発行してください。</p><button class="primary-btn" data-nav="#bag">MY BAGを見る</button></div>`;return;}
     const order=state.order;
+    if(order.cancelled){
+      $('#view').innerHTML=`<div class="page-body qr-page" role="status" aria-live="polite" style="padding-top:32px;text-align:center"><h1 class="page-title">ご注文は取り消されました</h1><p class="page-subtitle">スタッフが確保済みの商品をキャンセルし、在庫を戻しました。お支払い予定額はありません。</p><button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;return;
+    }
     if(order.confirmed){
       $('#view').innerHTML=`<div class="page-body qr-page" role="status" aria-live="polite" style="padding-top:32px;text-align:center">
         <div style="font-size:60px;color:#16805a;line-height:1.2" aria-hidden="true">✓</div>
         <h1 class="page-title" style="margin-top:18px">商品を確認しました。</h1>
         <p class="page-subtitle" style="font-size:17px;font-weight:700;line-height:1.7;margin-top:12px">スタッフがご準備いたします。</p>
         <section class="qr-card" style="margin-top:22px"><div class="qr-price-label">確認済み注文番号</div>
-          <div class="qr-order-id">${esc(order.id)}</div><div class="qr-price-label">お支払い予定額</div>
+          <div class="qr-order-id">${esc(order.id)}</div>${order.adjusted?`<p style="color:#9d3434;font-weight:700">商品取消を反映した金額です</p>`:""}<div class="qr-price-label">お支払い予定額</div>
           <div class="qr-price-base">${yen(order.total)}</div></section>
         <button class="outline-btn" data-nav="#home" style="margin-top:24px">商品一覧に戻る</button>
       </div>`;
@@ -317,7 +320,7 @@
         ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.color||line.id)}</span><strong>×${line.qty}</strong></div>`).join('')}
         <div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>
         ${order.gift?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}</div>
-      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>登録特典の割引確認・顧客CSV保存・会計照合・在庫戻しは未実装です。金額の検証に通ったQRのみスタッフ側で在庫確保できます。実際の支払完了や商品引渡しを示すものではありません。</div>
+      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>登録特典の割引確認・顧客CSV保存・会計照合・確保放置時の自動解除は未実装です。金額の検証に通ったQRのみスタッフ側で在庫確保できます。実際の支払完了や商品引渡しを示すものではありません。</div>
       <button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;
     try{
       const code=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);code.addData(orderQrPayload(order));code.make();
@@ -446,19 +449,23 @@
     const watchedId=id;
     if(typeof window.MEB_WATCH_ORDER_CONFIRMATION==='function'){
       try{
-        cancelOrderConfirmation=window.MEB_WATCH_ORDER_CONFIRMATION(watchedId,()=>{
-          if(!state.order||state.order.id!==watchedId||state.order.confirmed)return;
-          state.order.confirmed=true;
-          // After confirmation the order is independent of the remaining stock.
-          // Drop purchased quantities from this device's bag without removing
-          // another order and without displaying a misleading SOLD OUT toast.
-          for(const line of state.order.items){
-            const itemKey=skuKey(line.id,line.color?line.color.slice(line.id.length+1):'');
-            const current=state.cart[itemKey]||0;
-            if(current<=line.qty)delete state.cart[itemKey];
-            else state.cart[itemKey]=current-line.qty;
+        cancelOrderConfirmation=window.MEB_WATCH_ORDER_CONFIRMATION(watchedId,data=>{
+          if(!state.order||state.order.id!==watchedId)return;
+          if(!state.order.confirmed){
+            // Clear the original bag once only; partial cancellations do not
+            // remove unrelated items that were added afterwards.
+            for(const line of state.order.items){
+              const itemKey=skuKey(line.id,line.color?line.color.slice(line.id.length+1):'');
+              const current=state.cart[itemKey]||0;
+              if(current<=line.qty)delete state.cart[itemKey];
+              else state.cart[itemKey]=current-line.qty;
+            }
+            saveCart();
           }
-          saveCart();
+          state.order.confirmed=true;
+          state.order.cancelled=data.status==='cancelled';
+          state.order.adjusted=data.modified===true;
+          if(Number.isInteger(data.amount)&&data.amount>=0)state.order.total=data.amount;
           if(location.hash==='#qr')render();
         },()=>{
           if(state.order?.id===watchedId && location.hash==='#qr')toast('確認状況を取得できません。通信環境をご確認ください。');

@@ -1,123 +1,326 @@
-/** MY EXPO BAG 1.0.1: authenticated, transactional, idempotent inventory deduction. */
+/** MY EXPO BAG v1.0.1 — scan → customer review → atomic stock reservation → handoff. */
 import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 import {getFirestore,doc,getDoc,runTransaction,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 const $=id=>document.getElementById(id);
 const firebase=window.MEB_FIREBASE_CONFIG||{};
-let user=null,brand=null,db=null,scanner=null,scanning=false;
-const say=(message,isError=false)=>{$('result').textContent=message;$('result').className=isError?'error':'good';};
+let user=null,brand=null,db=null,scanner=null,cameraStarting=false,working=false,candidate=null,stage='scan';
 const yen=n=>'¥'+Math.round(n).toLocaleString('ja-JP');
 const loginUrl=new URL('./login.html',location.href).href;
-const parseOrder=text=>{
-  let raw;try{raw=JSON.parse(String(text||''));}catch{throw Error('購入QRの形式を読み取れません。');}
-  if(raw?.t!=='MEB2'||typeof raw.o!=='string'||!/^DEMO-[A-F0-9]{20}$/.test(raw.o))throw Error('対応していない購入QRです。');
-  if(raw.b!==brand.slug||raw.e!==brand.slug)throw Error('別の出展ブランドのQRです。');
-  if(!Array.isArray(raw.i)||raw.i.length<1||raw.i.length>30)throw Error('購入商品数が不正です。');
-  const counts=new Map(),items=[];
-  for(const line of raw.i){
-    if(!Array.isArray(line)||line.length!==3)throw Error('商品データが不正です。');
-    const [id,sku,qty]=line;
-    if(typeof id!=='string'||! /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(id)||typeof sku!=='string'||sku.length>70||!Number.isInteger(qty)||qty<1||qty>20)throw Error('商品ID・数量が不正です。');
-    const variant=sku?sku.startsWith(id+'_')?sku.slice(id.length+1):null:'';
-    if(variant===null)throw Error('サブコードが商品IDと一致しません。');
-    const key=id+'::'+variant; if(items.some(x=>x.key===key))throw Error('QRに重複したSKUがあります。');
-    items.push({id,variant,qty,key});counts.set(id,(counts.get(id)||0)+qty);
+function say(message,isError=false){$('result').textContent=message;$('result').className=isError?'error':'good';}
+function display(stageName){
+ stage=stageName;
+ for(const id of ['scan','review','prepared','closed','cancelled'])$(id+'-panel').hidden=id!==stageName;
+}
+function ready(){return !!user&&!!brand&&!!db&&!working;}
+function codeFor(p,code){
+ const variants=Array.isArray(p.variants)?p.variants:[];
+ const v=code?variants.find(v=>v.code===code):null;
+ if(variants.length&&!v)throw Error('バリエーション指定が不正です：'+p.name);
+ if(!variants.length&&code)throw Error('この商品にサブコードはありません：'+p.name);
+ return v;
+}
+function priceFor(p,code){
+ const v=codeFor(p,code);
+ const normal=Number.isInteger(v?.price)?v.price:p.price;
+ const event=Number.isInteger(v?.eventPrice)?v.eventPrice:p.eventPrice;
+ return Number.isInteger(event)&&event>=0&&event<normal?event:normal;
+}
+function parseOrder(text){
+ let raw;try{raw=JSON.parse(String(text||''));}catch{throw Error('購入QRの形式を読み取れません。');}
+ if(raw?.t!=='MEB2'||typeof raw.o!=='string'||!/^DEMO-[A-F0-9]{20}$/.test(raw.o))throw Error('対応していない購入QRです。');
+ if(raw.b!==brand.slug||raw.e!==brand.slug)throw Error('別の出展ブランドのQRです。');
+ if(!Array.isArray(raw.i)||raw.i.length<1||raw.i.length>30)throw Error('購入商品数が不正です。');
+ const counts=new Map(),items=[],keys=new Set();
+ for(const line of raw.i){
+  if(!Array.isArray(line)||line.length!==3)throw Error('商品データが不正です。');
+  const [id,sku,qty]=line;
+  if(typeof id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(id)||typeof sku!=='string'||sku.length>70||!Number.isInteger(qty)||qty<1||qty>20)throw Error('商品ID・数量が不正です。');
+  const variant=sku?(sku.startsWith(id+'_')?sku.slice(id.length+1):null):'';
+  if(variant===null)throw Error('サブコードと商品IDが一致しません。');
+  const key=id+'::'+variant;if(keys.has(key))throw Error('QRに重複した商品・バリエーションがあります。');keys.add(key);
+  items.push({id,variant,qty,key});counts.set(id,(counts.get(id)||0)+qty);
+ }
+ if(items.some(x=>counts.get(x.id)>20))throw Error('同一商品の数量が上限を超えています。');
+ return {raw,items,counts};
+}
+function calculate(parsed,catalog){
+ const {raw,items,counts}=parsed;
+ const published=new Map((catalog.products||[]).map(p=>[p.id,p]));
+ const details=items.map(item=>{
+  const p=published.get(item.id);if(!p)throw Error('現在公開されていない商品です：'+item.id);
+  const v=codeFor(p,item.variant);
+  return {...item,name:p.name,variantName:v?.name||'',unitPrice:priceFor(p,item.variant)};
+ });
+ let amount=0;for(const x of details)amount+=x.unitPrice*x.qty;
+ const remaining=new Map(counts);let bundleDiscount=0;
+ const bundles=(catalog.bundles||[]).filter(b=>Array.isArray(b.productIds)&&b.productIds.length===2&&Number.isInteger(b.discountAmount)&&b.discountAmount>0).sort((a,b)=>b.discountAmount-a.discountAmount);
+ for(const b of bundles){
+  const [a,c]=b.productIds;const count=Math.min(remaining.get(a)||0,remaining.get(c)||0);if(!count)continue;
+  const minPrice=id=>Math.min(...details.filter(x=>x.id===id).map(x=>x.unitPrice));
+  const saving=Math.min(b.discountAmount,minPrice(a)+minPrice(c));bundleDiscount+=saving*count;
+  remaining.set(a,remaining.get(a)-count);remaining.set(c,remaining.get(c)-count);
+ }
+ const base=Math.max(0,amount-Math.min(amount,bundleDiscount));
+ const publishedRate=Number(catalog.event?.appPurchaseDiscountPercent||0);
+ if((publishedRate>0&&raw.r===1)||Number(raw.p||0)>0||Number(raw.d||0)>0)throw Error('登録特典割引の本人確認は未接続です。割引付きQRはまだ在庫確保できません。');
+ if(!Number.isInteger(raw.a)||base!==raw.a||raw.s!==base||raw.d!==0)throw Error('QRの金額と登録済み価格が一致しません。');
+ return {details,amount:base};
+}
+function checkStock(parsed,stock,privateMap=null){
+ const quantities=stock.quantities||{};
+ for(const [id,qty] of parsed.counts){
+  if(!Object.prototype.hasOwnProperty.call(quantities,id))throw Error('在庫情報が未設定の商品です：'+id);
+  if(quantities[id]!==null&&(!Number.isInteger(quantities[id])||quantities[id]<qty))throw Error('在庫が不足しています：'+id+'（必要 '+qty+'点）');
+  if(privateMap){const p=privateMap.get(id);if(!p||p.active===false)throw Error('販売できない商品です：'+id);
+   if(p.stock!==null&&(!Number.isInteger(p.stock)||p.stock<qty))throw Error('在庫が不足しています（管理側）：'+id);
   }
-  if(items.some(x=>counts.get(x.id)>20))throw Error('同一商品が上限数量を超えています。');
-  return {raw,items,counts};
-};
-function priceFor(product,code){
-  const variants=Array.isArray(product.variants)?product.variants:[];
-  const variant=code?variants.find(v=>v.code===code):null;
-  if(variants.length&&!variant)throw Error('バリエーション指定が不正です：'+product.id);
-  if(!variants.length&&code)throw Error('不要なサブコードがあります：'+product.id);
-  const normal=Number.isInteger(variant?.price)?variant.price:product.price;
-  const event=Number.isInteger(variant?.eventPrice)?variant.eventPrice:product.eventPrice;
-  return Number.isInteger(event)&&event>=0&&event<normal?event:normal;
+ }
 }
-async function confirmScan(text){
-  if(!user||!brand||scanning)return;
-  scanning=true;$('manual-scan').disabled=true;$('camera-start').disabled=true;$('price').textContent='';$('sales-note').textContent='';say('商品・在庫・金額を確認しています…');
-  try{
-    const {raw,items,counts}=parseOrder(text);
-    const stockRef=doc(db,'publishedStock',brand.slug);
-    const saleRef=doc(db,'brands',user.uid,'scannedOrders',raw.o);
-    const confirmRef=doc(db,'publicOrderConfirmations',brand.slug,'orders',raw.o);
-    const confirmation=()=>({slug:brand.slug,brandId:user.uid,orderId:raw.o,status:'confirmed',confirmedAt:serverTimestamp()});
-    const catalogRef=doc(db,'publishedCatalogs',brand.slug);
-    const productRefs=[...counts.keys()].map(id=>doc(db,'brands',user.uid,'products',id));
-    const outcome=await runTransaction(db,async tx=>{
-      // Read all transaction documents before any write.
-      const [sold,ack]=await Promise.all([tx.get(saleRef),tx.get(confirmRef)]);
-      if(sold.exists()){
-        // Backfill existing orders read with an older scanner version.
-        // No stock deduction on a second scan.
-        if(!ack.exists())tx.set(confirmRef,confirmation());
-        return {duplicate:true,amount:sold.data().amount};
-      }
-      if(ack.exists())throw Error('注文状態に不整合があります。管理者へご確認ください。');
-      const [stockSnap,catalogSnap,...productSnaps]=await Promise.all([tx.get(stockRef),tx.get(catalogRef),...productRefs.map(r=>tx.get(r))]);
-      if(!stockSnap.exists()||!catalogSnap.exists())throw Error('在庫情報がまだ公開されていません。「お客様ページに反映」を実行してください。');
-      const catalog=catalogSnap.data();if(catalog.brandId!==user.uid||stockSnap.data().brandId!==user.uid)throw Error('ブランドの所有情報が一致しません。');
-      const publicById=new Map((catalog.products||[]).map(p=>[p.id,p]));
-      const privateById=new Map();const qtyById=stockSnap.data().quantities||{};
-      productSnaps.forEach((s,i)=>{if(!s.exists())throw Error('登録済み商品が見つかりません。');privateById.set(productRefs[i].id,s.data());});
-      let amount=0;
-      for(const item of items){
-        const p=publicById.get(item.id),privateProduct=privateById.get(item.id);
-        if(!p||!privateProduct||privateProduct.active===false)throw Error('商品が現在公開されていません：'+item.id);
-        {
-          if(!Object.prototype.hasOwnProperty.call(qtyById,item.id))throw Error('在庫情報が未設定の商品です：'+item.id);
-          if(qtyById[item.id]!==null && (!Number.isInteger(qtyById[item.id])||qtyById[item.id]<counts.get(item.id)))throw Error('売切れ・在庫不足：'+p.name);
-          if(privateProduct.stock!==null&&(!Number.isInteger(privateProduct.stock)||privateProduct.stock<counts.get(item.id)))throw Error('在庫不足（管理側）：'+p.name);
-        }
-        amount+=priceFor(p,item.variant)*item.qty;
-      }
-      const remaining=new Map(counts);let bundleDiscount=0;
-      const bundles=(catalog.bundles||[]).filter(b=>Array.isArray(b.productIds)&&b.productIds.length===2&&Number.isInteger(b.discountAmount)&&b.discountAmount>0).sort((a,b)=>b.discountAmount-a.discountAmount);
-      for(const b of bundles){
-        const [a,c]=b.productIds;const count=Math.min(remaining.get(a)||0,remaining.get(c)||0);if(!count)continue;
-        const minPrice=id=>Math.min(...items.filter(item=>item.id===id).map(item=>priceFor(publicById.get(id),item.variant)));
-        const saving=Math.min(b.discountAmount,minPrice(a)+minPrice(c));bundleDiscount+=saving*count;
-        remaining.set(a,remaining.get(a)-count);remaining.set(c,remaining.get(c)-count);
-      }
-      const base=Math.max(0,amount-Math.min(amount,bundleDiscount));
-      const publishedRate=Number(catalog.event?.appPurchaseDiscountPercent||0);
-      // Until registration records are server-verified, do NOT grant a QR-claimed discount.
-      if(publishedRate>0||Number(raw.p||0)>0)throw Error('登録特典割引の本人確認は未接続です。割引付きQRでの在庫確定はまだできません。');
-      if(!Number.isInteger(raw.a)||base!==raw.a||raw.s!==base||raw.d!==0)throw Error('QRに含まれる金額と登録済みの価格が一致しません。');
-      const next={...qtyById};
-      for(const [id,qty] of counts){
-        const product=privateById.get(id);
-        if(Number.isInteger(next[id]))next[id]-=qty;
-        if(Number.isInteger(product.stock))tx.update(doc(db,'brands',user.uid,'products',id),{stock:product.stock-qty,updatedAt:serverTimestamp()});
-      }
-      tx.update(stockRef,{quantities:next,updatedAt:serverTimestamp()});
-      tx.set(saleRef,{orderId:raw.o,brandId:user.uid,items:items.map(({id,variant,qty})=>({id,variant,qty})),amount:base,scanTime:serverTimestamp()});
-      // Atomically publish a minimal acknowledgement alongside the stock deduction.
-      tx.set(confirmRef,confirmation());
-      return {duplicate:false,amount:base,items};
-    },{maxAttempts:5});
-    if(outcome.duplicate){say('このQRはすでに読み取り済みです。\n在庫は再減算していません。');$('price').textContent=yen(outcome.amount);}
-    else {say('販売記録を保存し、在庫を更新しました。\n'+outcome.items.map(x=>`${x.id}${x.variant?'_'+x.variant:''} × ${x.qty}`).join('\n'));$('price').textContent=yen(outcome.amount);$('sales-note').textContent='同じQRを再読取しても在庫は減りません。';}
-  }catch(err){console.error(err);say(err.message||'読み取り処理に失敗しました。',true);}finally{scanning=false;$('manual-scan').disabled=false;$('camera-start').disabled=false;}
+// All prices are frozen at first reservation. Subsequent cancellations recalculate
+// using the originally accepted SKU prices and pair discounts, never today's catalog.
+function reprice(lines,bundles){
+ const counts=new Map(), prices=new Map();let subtotal=0;
+ for(const x of lines){
+  subtotal+=x.unitPrice*x.qty;
+  counts.set(x.id,(counts.get(x.id)||0)+x.qty);
+  prices.set(x.id,Math.min(prices.get(x.id)??Infinity,x.unitPrice));
+ }
+ let saving=0;
+ const sorted=[...bundles].sort((a,b)=>b.discountAmount-a.discountAmount);
+ for(const bundle of sorted){
+  const [a,b]=bundle.productIds;
+  const pairs=Math.min(counts.get(a)||0,counts.get(b)||0);
+  if(pairs<=0)continue;
+  const cut=Math.min(bundle.discountAmount,(prices.get(a)||0)+(prices.get(b)||0));
+  saving+=cut*pairs;
+  counts.set(a,counts.get(a)-pairs);counts.set(b,counts.get(b)-pairs);
+ }
+ return Math.max(0,subtotal-Math.min(subtotal,saving));
 }
-async function stopCamera(){if(scanner){try{await scanner.stop();}catch{}try{scanner.clear();}catch{}scanner=null;}$('camera-stop').disabled=true;}
-$('camera-start').addEventListener('click',async()=>{
- if(!window.Html5Qrcode){say('カメラ用ライブラリを読み込めませんでした。QR内容の貼り付けをご利用ください。',true);return;}
- await stopCamera();scanner=new window.Html5Qrcode('reader');
- try{await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:225,height:225}},async value=>{await stopCamera();$('qr-input').value=value;await confirmScan(value);},()=>{});$('camera-stop').disabled=false;}
- catch(err){console.error(err);say('カメラが起動しませんでした。iPhoneのカメラ権限をご確認ください。',true);}
+const sameItems=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const compactItems=items=>items.map(({id,variant,qty})=>({id,variant,qty}));
+const refsForOrder=raw=>({
+ sale:doc(db,'brands',user.uid,'scannedOrders',raw.o),
+ confirmation:doc(db,'publicOrderConfirmations',brand.slug,'orders',raw.o),
+ stock:doc(db,'publishedStock',brand.slug),
+ catalog:doc(db,'publishedCatalogs',brand.slug)
 });
+function fillItems(elementId,items,canCancel=false){
+ const el=$(elementId);el.replaceChildren();
+ for(const item of items){
+  const li=document.createElement('li'),left=document.createElement('div'),name=document.createElement('div'),qty=document.createElement('div');
+  name.className='line-name';name.textContent=item.name;left.append(name);
+  if(item.variantName||item.variant){const v=document.createElement('div');v.className='line-variant';v.textContent='バリエーション：'+(item.variantName||item.variant);left.append(v);}
+  const code=document.createElement('div');code.className='line-code';code.textContent='商品コード：'+item.id+(item.variant?'_'+item.variant:'');left.append(code);
+  qty.className='line-qty';qty.textContent='× '+item.qty;
+  const info=document.createElement('div');info.className='line-info';info.append(left,qty);li.append(info);
+  if(canCancel){
+   const btn=document.createElement('button');btn.type='button';btn.className='cancel-line';btn.dataset.cancelKey=item.key||item.id+'::'+item.variant;
+   btn.textContent='この商品を取り消す（'+item.qty+'点）';btn.disabled=working;
+   li.append(btn);
+  }
+  el.append(li);
+ }
+}
+function acceptedView(order,already=false){
+ candidate=order;
+ if(order.status==='cancelled'||!order.lines.length){display('cancelled');return;}
+ if(order.status==='handedOff'){
+  fillItems('prepared-items',order.lines,false);
+  $('prepared-total').textContent=yen(order.amount);
+  $('prepared-panel').querySelector('.status-badge').textContent='すでにお渡し済み';
+  $('prepared-panel').querySelector('.step-hint').textContent='この注文はお渡し済みです。再度在庫は減らしていません。';
+  $('handoff').hidden=true;$('prepared-cancel-all').hidden=true;display('prepared');return;
+ }
+ $('handoff').hidden=false;
+ $('review-total').textContent=yen(order.amount);
+ fillItems('review-items',order.lines,true);
+ $('review-status').textContent=already?'確保済み注文を再表示しています。追加の在庫減算はありません。':'QRを読み取り、在庫を確保しました。';
+ $('customer-checked').checked=false;$('prepare').disabled=true;
+ $('review-error').hidden=true;$('review-error').textContent='';
+ display('review');
+}
+function prepView(){
+ if(!candidate)return;
+ fillItems('prepared-items',candidate.lines,true);
+ $('prepared-total').textContent=yen(candidate.amount);
+ $('prepared-panel').querySelector('.status-badge').textContent='在庫確保済み';
+ $('prepared-panel').querySelector('.step-hint').textContent='準備する商品と数量はこちらです。不要な商品はこの画面からも取り消せます。';
+ $('handoff').hidden=false;display('prepared');
+}
+async function reserveAtScan(parsed,quote){
+ const {raw,items,counts}=parsed;
+ const refs=refsForOrder(raw);
+ const ids=[...counts.keys()];
+ const productRefs=ids.map(id=>doc(db,'brands',user.uid,'products',id));
+ return runTransaction(db,async tx=>{
+  // Firebase transactions retry if another staff member changes the same stock.
+  const sold=await tx.get(refs.sale);
+  if(sold.exists()){
+   const old=sold.data();
+   if(old.originalAmount!==undefined){
+    if(old.originalAmount!==quote.amount||!sameItems(old.originalItems,compactItems(items)))throw Error('同じ注文番号ですが、元の商品または金額が一致しません。');
+   }else if(old.amount!==quote.amount||!sameItems(old.items,compactItems(items))){
+    throw Error('同じ注文番号ですが、元の商品または金額が一致しません。');
+   }
+   if(!Array.isArray(old.originalLines))throw Error('以前の形式で確保した注文です。個別取消には対応していません。管理者へお問い合わせください。');
+   return {already:true,data:old};
+  }
+  // All reads precede writes. Concurrency on stock prevents overselling.
+  const [stockSnap,catalogSnap,...prodSnaps]=await Promise.all([tx.get(refs.stock),tx.get(refs.catalog),...productRefs.map(ref=>tx.get(ref))]);
+  if(!stockSnap.exists()||!catalogSnap.exists())throw Error('商品・在庫の公開が未完了です。');
+  const stock=stockSnap.data(),catalog=catalogSnap.data();
+  if(stock.brandId!==user.uid||catalog.brandId!==user.uid)throw Error('別ブランドの商品です。');
+  const privateMap=new Map();prodSnaps.forEach((snap,i)=>{if(snap.exists())privateMap.set(ids[i],snap.data());});
+  const latest=calculate(parsed,catalog);
+  if(latest.amount!==quote.amount)throw Error('商品価格が変更されました。QRを作り直してください。');
+  checkStock(parsed,stock,privateMap);
+  const originalLines=latest.details.map(x=>({id:x.id,variant:x.variant,qty:x.qty,key:x.key,name:x.name,variantName:x.variantName,unitPrice:x.unitPrice}));
+  const bundles=(catalog.bundles||[]).filter(b=>Array.isArray(b.productIds)&&b.productIds.length===2&&b.productIds.every(id=>counts.has(id))&&Number.isInteger(b.discountAmount)&&b.discountAmount>0)
+    .map(b=>({productIds:[...b.productIds],discountAmount:b.discountAmount}));
+  if(reprice(originalLines,bundles)!==latest.amount)throw Error('セット割引の計算に不整合があります。');
+  const newQuantities={...stock.quantities};
+  for(const [id,qty] of counts){
+   const privateProduct=privateMap.get(id);
+   if(Number.isInteger(newQuantities[id]))newQuantities[id]-=qty;
+   if(Number.isInteger(privateProduct.stock))tx.update(productRefs[ids.indexOf(id)],{stock:privateProduct.stock-qty,updatedAt:serverTimestamp()});
+  }
+  tx.update(refs.stock,{quantities:newQuantities,updatedAt:serverTimestamp()});
+  const data={orderId:raw.o,brandId:user.uid,originalItems:compactItems(items),originalAmount:latest.amount,
+   originalLines,remainingLines:originalLines,bundles,items:compactItems(items),amount:latest.amount,status:'reserved',
+   scanTime:serverTimestamp(),updatedAt:serverTimestamp()};
+  tx.set(refs.sale,data);
+  tx.set(refs.confirmation,{slug:brand.slug,brandId:user.uid,orderId:raw.o,status:'confirmed',confirmedAt:serverTimestamp(),
+    amount:latest.amount,modified:false,updatedAt:serverTimestamp()});
+  return {already:false,data};
+ },{maxAttempts:5});
+}
+async function loadQr(text){
+ if(!ready()||stage!=='scan')return;
+ working=true;$('camera-start').disabled=true;$('manual-scan').disabled=true;
+ say('注文内容を検証し、在庫を確保しています…');
+ try{
+  const parsed=parseOrder(text),refs=refsForOrder(parsed.raw);
+  const snap=await getDoc(refs.catalog);
+  if(!snap.exists()||snap.data().brandId!==user.uid)throw Error('このブランドの商品公開が未完了です。');
+  const quote=calculate(parsed,snap.data());
+  const result=await reserveAtScan(parsed,quote);
+  acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status},result.already);
+ }catch(err){console.error(err);say(err.message||'在庫確保に失敗しました。',true);candidate=null;}
+ finally{working=false;document.querySelectorAll('.cancel-line').forEach(b=>b.disabled=false);if(stage==='scan'&&user){$('camera-start').disabled=false;$('manual-scan').disabled=false;}}
+}
+async function cancelLine(key,all=false){
+ if(!ready()||!candidate||!['review','prepared'].includes(stage))return;
+ const target=candidate.lines.find(x=>x.key===key);
+ if(!all&&!target)return;
+ const subject=all?'残りの商品すべて':target.name+(target.variantName?'（'+target.variantName+'）':'')+' × '+target.qty;
+ if(!window.confirm(subject+'を取り消しますか？\n在庫を戻し、合計金額を再計算します。'))return;
+ working=true;const previousStage=stage;
+ document.querySelectorAll('.cancel-line,#prepare,#handoff,#retry,#cancel-all,#prepared-cancel-all').forEach(b=>b.disabled=true);
+ $('review-error').hidden=true;
+ try{
+  const refs=refsForOrder(candidate.raw);
+  const updated=await runTransaction(db,async tx=>{
+   const saleSnap=await tx.get(refs.sale);
+   if(!saleSnap.exists())throw Error('注文履歴が見つかりません。');
+   const sale=saleSnap.data();
+   if(sale.status!=='reserved')throw Error('この注文は確保中ではありません。取り消しできません。');
+   if(!Array.isArray(sale.originalLines)||!Array.isArray(sale.remainingLines))throw Error('以前の形式の注文は取り消せません。');
+   const removed=all?sale.remainingLines:sale.remainingLines.filter(x=>x.key===key);
+   if(!removed.length)throw Error('この商品はすでに取り消されています。画面を再表示してください。');
+   const kept=all?[]:sale.remainingLines.filter(x=>x.key!==key);
+   const totals=new Map();for(const line of removed)totals.set(line.id,(totals.get(line.id)||0)+line.qty);
+   const ids=[...totals.keys()];const productRefs=ids.map(id=>doc(db,'brands',user.uid,'products',id));
+   const [stockSnap,ackSnap,...privateSnaps]=await Promise.all([tx.get(refs.stock),tx.get(refs.confirmation),...productRefs.map(r=>tx.get(r))]);
+   if(!stockSnap.exists()||!ackSnap.exists())throw Error('現在の在庫情報に不整合があります。');
+   const stock=stockSnap.data(),next={...stock.quantities};
+   if(stock.brandId!==user.uid)throw Error('在庫の管理ブランドが一致しません。');
+   ids.forEach((id,i)=>{
+    if(!(id in next))throw Error('在庫情報が見つかりません：'+id);
+    const qty=totals.get(id),current=next[id];
+    if(current!==null){if(!Number.isInteger(current)||current+qty>100000000)throw Error('在庫の復元数が不正です');next[id]=current+qty;}
+    if(!privateSnaps[i].exists())throw Error('元の商品が見つかりません：'+id);
+    const priv=privateSnaps[i].data();
+    if(Number.isInteger(priv.stock)){if(priv.stock+qty>100000000)throw Error('商品在庫が上限を超えます');tx.update(productRefs[i],{stock:priv.stock+qty,updatedAt:serverTimestamp()});}
+   });
+   const amount=reprice(kept,sale.bundles||[]);
+   const nextStatus=kept.length?'reserved':'cancelled';
+   tx.update(refs.stock,{quantities:next,updatedAt:serverTimestamp()});
+   tx.update(refs.sale,{items:compactItems(kept),remainingLines:kept,amount,status:nextStatus,updatedAt:serverTimestamp()});
+   tx.update(refs.confirmation,{amount,status:kept.length?'confirmed':'cancelled',modified:true,updatedAt:serverTimestamp()});
+   return {lines:kept,amount,status:nextStatus};
+  },{maxAttempts:5});
+  candidate={...candidate,...updated};
+  if(updated.status==='cancelled'){display('cancelled');}
+  else if(previousStage==='prepared')prepView();else acceptedView(candidate,true);
+ }catch(err){console.error(err);const errorEl=$('review-error');errorEl.textContent=err.message||'取消処理に失敗しました。';errorEl.hidden=false;
+  if(stage==='prepared')window.alert(errorEl.textContent);}
+ finally{working=false;document.querySelectorAll('.cancel-line,#retry,#handoff,#cancel-all,#prepared-cancel-all').forEach(b=>b.disabled=false);$('prepare').disabled=(!$('customer-checked').checked||working);}
+}
+async function handoff(){
+ if(!ready()||stage!=='prepared'||!candidate)return;
+ working=true;$('handoff').disabled=true;
+ try{
+  const refs=refsForOrder(candidate.raw);
+  const data=await runTransaction(db,async tx=>{
+   const s=await tx.get(refs.sale);
+   if(!s.exists())throw Error('注文履歴が見つかりません。');
+   if(s.data().status==='handedOff')return s.data();
+   if(s.data().status!=='reserved')throw Error('注文は取り消されています。お渡しできません。');
+   tx.update(refs.sale,{status:'handedOff',updatedAt:serverTimestamp()});
+   return {...s.data(),status:'handedOff'};
+  });
+  candidate.status=data.status;display('closed');
+ }catch(err){window.alert(err.message||'お渡し情報を保存できませんでした。');}
+ finally{working=false;$('handoff').disabled=false;}
+}
+async function stopCamera(){
+ const active=scanner;scanner=null;
+ if(active){try{await active.stop();}catch{}try{active.clear();}catch{}}
+ $('camera-stop').disabled=true;
+}
+async function startCamera(){
+ if(!ready()||stage!=='scan'||cameraStarting)return;
+ if(!window.Html5Qrcode){say('カメラライブラリを読み込めませんでした。入力欄をご利用ください。',true);return;}
+ cameraStarting=true;$('camera-start').disabled=true;
+ try{
+  await stopCamera();scanner=new window.Html5Qrcode('reader');
+  await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:225,height:225}},async text=>{
+   if(working||stage!=='scan')return;
+   working=true;await stopCamera();working=false;
+   $('qr-input').value=text;
+   await loadQr(text);
+  },()=>{});
+  $('camera-stop').disabled=false;say('QRをカメラ枠に合わせてください。');
+ }catch(err){console.error(err);say('カメラを起動できません。iPhoneのカメラ権限をご確認ください。',true);await stopCamera();}
+ finally{cameraStarting=false;if(stage==='scan'&&user)$('camera-start').disabled=false;}
+}
+function reset(){candidate=null;$('qr-input').value='';$('customer-checked').checked=false;$('prepare').disabled=true;display('scan');say('QRの読み取り待ちです。');$('camera-start').disabled=!user;$('manual-scan').disabled=!user;}
+document.querySelector('header a[href]').addEventListener('click',event=>{
+ if(candidate?.status==='reserved'&&['review','prepared'].includes(stage)){event.preventDefault();window.alert('この注文は在庫確保済みです。管理画面へ戻る前に、お渡しを完了するか、残りの商品をすべて取り消してください。');}
+});
+$('camera-start').addEventListener('click',startCamera);
 $('camera-stop').addEventListener('click',stopCamera);
-$('manual-scan').addEventListener('click',()=>confirmScan($('qr-input').value));
-if(['apiKey','authDomain','projectId','appId'].some(k=>!firebase[k]))say('Firebaseの設定を読み込めませんでした。',true);
-else {
+$('manual-scan').addEventListener('click',async()=>{await stopCamera();await loadQr($('qr-input').value);});
+$('customer-checked').addEventListener('change',()=>{$('prepare').disabled=!$('customer-checked').checked||working;});
+$('prepare').addEventListener('click',()=>{if(ready()&&stage==='review'&&candidate&&$('customer-checked').checked)prepView();});
+document.addEventListener('click',event=>{const b=event.target.closest('[data-cancel-key]');if(b)cancelLine(b.dataset.cancelKey);});
+$('cancel-all').addEventListener('click',()=>cancelLine('',true));
+$('prepared-cancel-all').addEventListener('click',()=>cancelLine('',true));
+$('retry').addEventListener('click',()=>{if(candidate?.status==='reserved'){window.alert('在庫が確保されています。別のQRへ進む場合は、先に商品をすべて取り消すか、お渡しまで完了してください。');return;}reset();});
+$('handoff').addEventListener('click',handoff);
+$('next-scan').addEventListener('click',async()=>{reset();await startCamera();});
+$('cancelled-next').addEventListener('click',async()=>{reset();await startCamera();});
+if(['apiKey','authDomain','projectId','appId'].some(k=>!firebase[k]))say('Firebaseの接続情報が見つかりません。',true);
+else{
  const app=getApps().length?getApp():initializeApp(firebase);db=getFirestore(app);
  onAuthStateChanged(getAuth(app),async u=>{
   if(!u){location.replace(loginUrl);return;}
-  try{const s=await getDoc(doc(db,'brands',u.uid));if(!s.exists()||s.data().ownerUid!==u.uid)throw Error('ブランド管理権限がありません');
-   user=u;brand=s.data();$('auth-state').textContent='ログイン中：'+brand.displayName;$('camera-start').disabled=false;$('manual-scan').disabled=false;
+  try{
+   const s=await getDoc(doc(db,'brands',u.uid));if(!s.exists()||s.data().ownerUid!==u.uid)throw Error('ブランド管理権限がありません。');
+   user=u;brand=s.data();$('auth-state').textContent='ログイン中：'+brand.displayName;
+   $('camera-start').disabled=false;$('manual-scan').disabled=false;
   }catch(err){console.error(err);say('ブランド情報を確認できませんでした。',true);}
  });
 }
