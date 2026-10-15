@@ -12,10 +12,16 @@ const radio=(name)=>document.querySelector('input[name="'+name+'"]:checked')?.va
 const setRadio=(name,value)=>{const el=document.querySelector('input[name="'+name+'"][value="'+value+'"]');if(el)el.checked=true};
 function fields(){const mode=radio('discount-mode');$('discount-fields').hidden=mode==='none';$('discount-label').textContent=mode==='percent'?'割引率（％・必須）':'割引額（円・必須）';$('discount-value').max=mode==='percent'?'100':'100000000';const enabled=$('novelty-enabled').checked;const noveltyMode=radio('novelty-mode');$('novelty-fields').hidden=!enabled;$('minimum-fields').hidden=!enabled||noveltyMode!=='minimum';$('product-fields').hidden=!enabled||noveltyMode!=='product'}
 function bannerFields(){const mode=$('banner-link-mode').value;$('banner-product-wrap').hidden=mode!=='product';$('banner-url-wrap').hidden=mode!=='url';}
+$('banner-enabled').checked=true;
 $('banner-link-mode').addEventListener('change',bannerFields);bannerFields();
 document.querySelectorAll('input[type=radio]').forEach(el=>el.addEventListener('change',fields));$('novelty-enabled').addEventListener('change',fields);fields();
-function previewBanner(){$('banner-preview').hidden=!bannerData;$('banner-preview').src=bannerData||'';$('image-status').textContent=bannerData?'保存予定のバナー：'+Math.ceil(bannerData.length*3/4/1024)+'KB・1200×400px':'画像がありません。';}
-$('banner-remove').onclick=()=>{bannerData='';$('banner-file').value='';$('banner-enabled').checked=false;previewBanner()};
+const defaultBanner='./assets/myexpobag-default-banner.webp';
+function previewBanner(){
+ $('banner-preview').hidden=false;
+ $('banner-preview').src=bannerData||defaultBanner;
+ $('image-status').textContent=bannerData?'登録バナー：約'+Math.ceil(bannerData.length*3/4/1024)+'KB・1200×400px':'デフォルトバナーを使用（1200×400px・軽量WebP）。差し替え可能です。';
+}
+$('banner-remove').onclick=()=>{bannerData='';$('banner-file').value='';$('banner-enabled').checked=true;previewBanner()};
 $('banner-file').addEventListener('change',async e=>{
  const file=e.target.files?.[0];if(!file)return;
  $('image-status').textContent='画像を最適化しています…';
@@ -38,7 +44,7 @@ $('save').onclick=async()=>{
   const mode=radio('discount-mode');const value=mode==='none'?0:positive('discount-value');if(mode==='percent'&&value>100)throw Error('割引率は1〜100％です。');if(value>100000000)throw Error('割引額の上限は1億円です。');
   const novMode=$('novelty-enabled').checked?radio('novelty-mode'):'none';const name=novMode==='none'?'':$('novelty-name').value.trim();if(novMode!=='none'&&!name)throw Error('ノベルティ名を入力してください。');if([...name].length>50)throw Error('ノベルティ名は50文字以内です。');
   const minSpend=novMode==='minimum'?positive('novelty-minimum'):0;const productId=novMode==='product'?$('novelty-product').value:'';if(novMode==='product'&&!productId)throw Error('ノベルティ対象商品を選択してください。');
-  if($('banner-enabled').checked&&!bannerData)throw Error('表示するバナー画像を選択してください。');
+  // A brand may use the built-in default banner without uploading any image.
   const linkMode=$('banner-link-mode').value;let linkValue='';
   if(linkMode==='product'){
    linkValue=$('banner-product').value;
@@ -52,7 +58,7 @@ $('save').onclick=async()=>{
   }
   if(!['none','product','url'].includes(linkMode))throw Error('リンク先の種類が不正です。');
   busy=true;$('save').disabled=true;status('保存しています…');
-  await setDoc(doc(db,'brandSettings',slug),{brandId:owner.uid,slug,theme:{preset},banner:{enabled:$('banner-enabled').checked,imageData:bannerData,linkMode,linkValue},discount:{mode,value},novelty:{mode,name,minSpend,productId},updatedAt:serverTimestamp()});
+  await setDoc(doc(db,'brandSettings',slug),{brandId:owner.uid,slug,theme:{preset},banner:{enabled:$('banner-enabled').checked,hiddenDefault:!$('banner-enabled').checked&&!bannerData,imageData:bannerData,linkMode,linkValue},discount:{mode,value},novelty:{mode,name,minSpend,productId},updatedAt:serverTimestamp()});
   status('保存しました。お客様ページに設定が反映されます。');
  }catch(error){console.error(error);status(error.message||'保存に失敗しました。',true);}finally{busy=false;$('save').disabled=false;}
 };
@@ -67,7 +73,7 @@ else{
    const products=await getDoc(doc(db,'publishedCatalogs',slug));const list=Array.isArray(products.data()?.products)?products.data().products:[];
    for(const p of list){for(const target of ['novelty-product','banner-product']){const option=document.createElement('option');option.value=p.id;option.textContent=p.id+'｜'+p.name;$(target).append(option)}}
    const snap=await getDoc(doc(db,'brandSettings',slug));if(snap.exists()){
-    const d=snap.data();preset=presets[d.theme?.preset]?d.theme.preset:'natural';bannerData=d.banner?.imageData||'';$('banner-enabled').checked=d.banner?.enabled===true;$('banner-link-mode').value=['none','product','url'].includes(d.banner?.linkMode)?d.banner.linkMode:'none';if(d.banner?.linkMode==='product')$('banner-product').value=d.banner.linkValue||'';if(d.banner?.linkMode==='url')$('banner-url').value=d.banner.linkValue||'';setRadio('discount-mode',d.discount?.mode||'none');$('discount-value').value=d.discount?.value||'';
+    const d=snap.data();preset=presets[d.theme?.preset]?d.theme.preset:'natural';bannerData=d.banner?.imageData||'';$('banner-enabled').checked=d.banner?.hiddenDefault!==true&&(!!bannerData?d.banner?.enabled!==false:true);$('banner-link-mode').value=['none','product','url'].includes(d.banner?.linkMode)?d.banner.linkMode:'none';if(d.banner?.linkMode==='product')$('banner-product').value=d.banner.linkValue||'';if(d.banner?.linkMode==='url')$('banner-url').value=d.banner.linkValue||'';setRadio('discount-mode',d.discount?.mode||'none');$('discount-value').value=d.discount?.value||'';
     const n=d.novelty||{};$('novelty-enabled').checked=!!n.mode&&n.mode!=='none';setRadio('novelty-mode',n.mode==='none'?'all':n.mode||'all');$('novelty-name').value=n.name||'';$('novelty-minimum').value=n.minSpend||'';$('novelty-product').value=n.productId||'';
    }
    previewTheme();previewBanner();fields();bannerFields();$('loading').hidden=true;$('shell').hidden=false;$('save').disabled=false;

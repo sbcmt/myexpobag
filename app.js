@@ -90,7 +90,7 @@
   let lastReleaseCheck = 0;
   let releaseCheckBusy = false;
   let pendingReleaseBuild = '';
-  const releaseCheckIntervalMs = 15_000;
+  const releaseCheckIntervalMs = 120_000;
 
   const variantsOf = p => (Array.isArray(p.variants) ? p.variants : []).filter(v=>v && typeof v.code==='string' && typeof v.name==='string' && v.code);
   const skuKey = (id,color='') => encodeURIComponent(id)+'::'+encodeURIComponent(color);
@@ -521,9 +521,10 @@
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});
   window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0,behavior:'instant'});});
   window.MEB_CATALOG_REFRESH=()=>{
+    // NEVER redirect automatically on a Firestore snapshot: initial snapshots,
+    // active settings changes and CDN propagation could otherwise create a loop.
     pendingReleaseBuild='catalog';
-    if(state.modalOpen||state.order||location.hash==='#qr')showReleaseNotice();
-    else location.reload();
+    showReleaseNotice();
   };
   // A Home Screen PWA can retain its old document while in the background.
   // On focus / visibility / periodic checks, compare actual live files with the
@@ -535,7 +536,7 @@
       notice.id='release-notice';
       notice.className='release-notice';
       notice.setAttribute('role','status');
-      notice.innerHTML='<span>最新の商品・画面が公開されました</span><button type="button" data-apply-release>更新する</button>';
+      notice.innerHTML='<span>新しい商品・設定が公開されました</span><button type="button" data-apply-release>最新版を表示</button>';
       document.body.appendChild(notice);
     }
     notice.hidden=false;
@@ -575,8 +576,9 @@
       if (results.some(([name,hash])=>hash!==currentHashes[name])){
         pendingReleaseBuild='changed';
         // Preserve unsent form contents and the provisional checkout QR.
-        if(state.modalOpen || state.order || location.hash==='#qr') showReleaseNotice();
-        else applyRelease();
+        // New assets are advisory only. An explicit tap is required even on
+        // the home screen, so a customer never loses their product/cart view.
+        showReleaseNotice();
       }
     } catch (error) {
       console.debug('更新確認ができませんでした',error);
@@ -589,7 +591,7 @@
   window.addEventListener('pageshow',()=>checkRelease(true));
   window.addEventListener('focus',()=>checkRelease(true));
   window.addEventListener('online',()=>checkRelease(true));
-  setInterval(()=>checkRelease(),90_000);
+  setInterval(()=>checkRelease(),120_000);
   ensureCart();render();
   if(typeof window.MEB_WATCH_PUBLIC_STOCK==='function')window.MEB_WATCH_PUBLIC_STOCK(data=>{
     const quantities=data.quantities||data;
