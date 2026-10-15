@@ -157,7 +157,7 @@ function variantRow(values={}){
  const prices=document.createElement('div');prices.className='cols';prices.append(make('バリエーション通常価格（任意）','variant-price','未設定なら商品価格',values.price));prices.append(make('バリエーション展示会特価（任意）','variant-event-price','未設定なら商品価格',values.eventPrice));row.append(prices);
  return row;
 }
-function refreshSubcodePrefixes(){const id=trim($('product-id').value)||'商品ID');for(const el of document.querySelectorAll('.subcode-prefix'))el.textContent=id+'_';}
+function refreshSubcodePrefixes(){const id=trim($('product-id').value)||'商品ID';for(const el of document.querySelectorAll('.subcode-prefix'))el.textContent=id+'_';}
 $('product-id').addEventListener('input',refreshSubcodePrefixes);
 function showVariants(variants=[]){
  const root=$('variant-rows');root.replaceChildren();const rows=variants.length?variants:[{},{},{}];
