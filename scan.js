@@ -394,14 +394,20 @@ async function startCamera(){
  if(!window.Html5Qrcode){say('カメラライブラリを読み込めませんでした。入力欄をご利用ください。',true);return;}
  cameraStarting=true;$('camera-start').disabled=true;
  try{
-  await stopCamera();scanner=new window.Html5Qrcode('reader');
-  await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:225,height:225}},async text=>{
-   if(working||stage!=='scan')return;
-   working=true;await stopCamera();working=false;
+  await stopCamera();
+  // Dense MEB2 order QRs were difficult to decode inside the old 225px crop.
+  // Scan the entire video frame so the decoder receives the full QR, including its quiet zone.
+  const instance=new window.Html5Qrcode('reader');
+  scanner=instance;
+  await instance.start({facingMode:'environment'},{fps:10,disableFlip:false},async text=>{
+   if(working||stage!=='scan'||scanner!==instance)return;
+   working=true;
+   try{await stopCamera();}finally{working=false;}
    $('qr-input').value=text;
    await loadQr(text);
   },()=>{});
-  $('camera-stop').disabled=false;say('QRをカメラ枠に合わせてください。');
+  $('camera-stop').disabled=false;
+  say('読み取り中です。QR全体を画面に入れ、ピントが合う位置で少し静止してください。');
  }catch(err){console.error(err);say('カメラを起動できません。iPhoneのカメラ権限をご確認ください。',true);await stopCamera();}
  finally{cameraStarting=false;if(stage==='scan'&&user)$('camera-start').disabled=false;}
 }
@@ -411,6 +417,33 @@ document.querySelector('header a[href]').addEventListener('click',event=>{
 });
 $('camera-start').addEventListener('click',startCamera);
 $('camera-stop').addEventListener('click',stopCamera);
+// Fallback for QR screenshots/photos. Decoding is done locally by html5-qrcode;
+// the selected image is not uploaded to a server.
+$('qr-image').addEventListener('change',async event=>{
+ const file=event.target.files?.[0];
+ if(!file)return;
+ event.target.value='';
+ if(!ready()||stage!=='scan')return;
+ if(!window.Html5Qrcode){say('QR読み取りライブラリが読み込めませんでした。',true);return;}
+ $('camera-start').disabled=true;
+ $('manual-scan').disabled=true;
+ say('画像内のQRを読み取っています…');
+ try{
+  await stopCamera();
+  const instance=new window.Html5Qrcode('reader');
+  scanner=instance;
+  const text=await instance.scanFile(file,false);
+  await stopCamera();
+  $('qr-input').value=text;
+  await loadQr(text);
+ }catch(err){
+  console.error('QR image decode error',err);
+  say('画像からQRを認識できませんでした。QRが鮮明に写った画像でお試しください。',true);
+  await stopCamera();
+ }finally{
+  if(stage==='scan'&&user&&!working){$('camera-start').disabled=false;$('manual-scan').disabled=false;}
+ }
+});
 $('manual-scan').addEventListener('click',async()=>{await stopCamera();await loadQr($('qr-input').value);});
 $('customer-checked').addEventListener('change',()=>{$('prepare').disabled=!$('customer-checked').checked||working;});
 $('prepare').addEventListener('click',()=>{if(ready()&&stage==='review'&&candidate&&$('customer-checked').checked)prepView();});

@@ -14,7 +14,7 @@ main{max-width:720px;margin:auto;padding:20px 15px 60px}.card{background:#fff;bo
 h2{font-size:18px;margin:0 0 13px}p{font-size:14px;line-height:1.7}.muted{color:#657784}.eyebrow{font-size:12px;color:#4d6b7c;font-weight:800;letter-spacing:.04em;margin-bottom:6px}
 button{border:0;border-radius:10px;padding:14px 16px;background:#183e50;color:#fff;font-weight:750;min-height:45px}button:disabled{opacity:.45;cursor:not-allowed}button.secondary{background:#e9f0f4;color:#193647}.wide{width:100%}.row{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}.row button{flex:1}
 textarea{width:100%;padding:12px;border:1px solid #aec0cb;border-radius:9px;font-size:13px;resize:vertical;min-height:85px}details{margin-top:20px;color:#485b68}summary{cursor:pointer;font-size:13px}
-#reader{margin:14px auto;max-width:450px}#reader video{max-width:100%}#result{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere;font-size:14px}#result.good{color:#125f45}#result.error{color:#b12020}
+#reader{margin:14px auto;max-width:450px}#reader video{max-width:100%}.qr-image-fallback{margin:10px 0 16px;padding:12px;background:#f3f7f9;border-radius:10px}.qr-image-fallback label{display:block;font-weight:700;font-size:13px;margin-bottom:8px}.qr-image-fallback input{display:block;width:100%;font-size:13px}.qr-image-fallback .muted{margin:8px 0 0;font-size:12px}#result{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere;font-size:14px}#result.good{color:#125f45}#result.error{color:#b12020}
 .warning{border-radius:10px;background:#fff4dd;padding:12px;color:#714b0a;font-size:13px;line-height:1.6}.subnote{margin-top:10px;font-size:13px;color:#596f7b;line-height:1.5}
 .line-list{display:flex;flex-direction:column;gap:10px;list-style:none;padding:0;margin:15px 0}.line-list li{display:flex;flex-direction:column;gap:10px;align-items:stretch;background:#f2f6f8;border:1px solid #e2e9ed;border-radius:10px;padding:14px 12px}.line-info{display:flex;align-items:center;justify-content:space-between;gap:10px}.cancel-line{background:#fff3f1!important;border:1px solid #df9f92!important;color:#923b30!important;min-height:38px!important;padding:8px 12px!important;font-size:13px!important}.line-name{font-weight:800;font-size:17px;line-height:1.45}.line-variant{font-size:14px;margin-top:5px;color:#4b6574;font-weight:650}.line-code{font-size:11px;margin-top:5px;color:#71828b}.line-qty{font-size:19px;font-weight:900;white-space:nowrap}.gift-notice{border:3px solid #e6a300;background:#fff2b4;color:#633300;font-weight:900;border-radius:12px;padding:17px 14px;font-size:20px;line-height:1.5;box-shadow:0 3px 10px #b4780020}.product-novelty-tag{display:inline-block;background:#f2e8cf;color:#624b23;padding:4px 7px;border-radius:6px;font-size:11px;font-weight:800;margin-top:5px}.big-total{border-top:1px solid #d6dfe4;margin-top:12px;padding-top:15px;display:flex;justify-content:space-between;align-items:center;gap:12px}.big-total strong{font-size:32px;letter-spacing:-.03em;white-space:nowrap}
 .confirm-field{display:flex;gap:12px;align-items:flex-start;padding:14px;margin:17px 0;background:#eaf5fa;border-radius:10px;font-size:15px;line-height:1.55;font-weight:750}.confirm-field input{width:22px;height:22px;flex:0 0 22px;margin-top:1px;accent-color:#183e50}
@@ -30,6 +30,7 @@ textarea{width:100%;padding:12px;border:1px solid #aec0cb;border-radius:9px;font
  <p class="warning">QR読み取り時に在庫を確保します。商品単位で取り消すと在庫が戻ります。誤読した場合は残りの商品をすべて取り消してください。</p>
  <div class="row"><button type="button" id="camera-start" disabled>読み取り開始</button><button class="secondary" type="button" id="camera-stop" disabled>カメラ停止</button></div>
  <div id="reader"></div>
+ <div class="qr-image-fallback"><label for="qr-image">QR画像から読み取る（予備）</label><input id="qr-image" type="file" accept="image/*" aria-label="QR画像を選択して読み取る"><p class="muted">カメラで読めない場合、QRの画像を選択して認識できます。画像はサーバーへ送信しません。</p></div>
  <details><summary>カメラが使えない場合：QRデータを入力</summary><label for="qr-input">購入QRのデータ</label><textarea id="qr-input" placeholder="MEB2形式の購入QRデータ"></textarea><div class="row"><button type="button" id="manual-scan" disabled>内容を読み取る</button></div></details>
  <p id="result" role="status" aria-live="polite">QRの読み取り待ちです。</p>
 </section>
@@ -61,6 +62,6 @@ textarea{width:100%;padding:12px;border:1px solid #aec0cb;border-radius:9px;font
 <p class="muted" style="font-size:12px">v1.0.1｜顧客CSV連携は追加済みです。決済の入金確認と放置注文の自動期限切れは未接続です。</p>
 </main>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
-<script type="module" src="./scan.js?asset=20261015-shipping-ledger-v101"></script>
+<script type="module" src="./scan.js?asset=20261016-qr-full-frame-v101"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body></html>
