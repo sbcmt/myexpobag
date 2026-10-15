@@ -42,12 +42,20 @@ async function confirmScan(text){
     const {raw,items,counts}=parseOrder(text);
     const stockRef=doc(db,'publishedStock',brand.slug);
     const saleRef=doc(db,'brands',user.uid,'scannedOrders',raw.o);
+    const confirmRef=doc(db,'publicOrderConfirmations',brand.slug,'orders',raw.o);
+    const confirmation=()=>({slug:brand.slug,brandId:user.uid,orderId:raw.o,status:'confirmed',confirmedAt:serverTimestamp()});
     const catalogRef=doc(db,'publishedCatalogs',brand.slug);
     const productRefs=[...counts.keys()].map(id=>doc(db,'brands',user.uid,'products',id));
     const outcome=await runTransaction(db,async tx=>{
       // Read all transaction documents before any write.
-      const sold=await tx.get(saleRef);
-      if(sold.exists())return {duplicate:true,amount:sold.data().amount};
+      const [sold,ack]=await Promise.all([tx.get(saleRef),tx.get(confirmRef)]);
+      if(sold.exists()){
+        // Backfill existing orders read with an older scanner version.
+        // No stock deduction on a second scan.
+        if(!ack.exists())tx.set(confirmRef,confirmation());
+        return {duplicate:true,amount:sold.data().amount};
+      }
+      if(ack.exists())throw Error('注文状態に不整合があります。管理者へご確認ください。');
       const [stockSnap,catalogSnap,...productSnaps]=await Promise.all([tx.get(stockRef),tx.get(catalogRef),...productRefs.map(r=>tx.get(r))]);
       if(!stockSnap.exists()||!catalogSnap.exists())throw Error('在庫情報がまだ公開されていません。「お客様ページに反映」を実行してください。');
       const catalog=catalogSnap.data();if(catalog.brandId!==user.uid||stockSnap.data().brandId!==user.uid)throw Error('ブランドの所有情報が一致しません。');
@@ -86,6 +94,8 @@ async function confirmScan(text){
       }
       tx.update(stockRef,{quantities:next,updatedAt:serverTimestamp()});
       tx.set(saleRef,{orderId:raw.o,brandId:user.uid,items:items.map(({id,variant,qty})=>({id,variant,qty})),amount:base,scanTime:serverTimestamp()});
+      // Atomically publish a minimal acknowledgement alongside the stock deduction.
+      tx.set(confirmRef,confirmation());
       return {duplicate:false,amount:base,items};
     },{maxAttempts:5});
     if(outcome.duplicate){say('このQRはすでに読み取り済みです。\n在庫は再減算していません。');$('price').textContent=yen(outcome.amount);}

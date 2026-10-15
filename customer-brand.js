@@ -68,6 +68,20 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
     }
     return imagePromises.get(productId);
   };
+  // Only the holder of a high-entropy purchase QR can look up the exact
+  // order's public acknowledgement. No customer PII or purchased item list is published.
+  // Firestore rules forbid listing orders and allow only exact document reads.
+  window.MEB_WATCH_ORDER_CONFIRMATION=(orderId,notify,onError)=>{
+    if(!/^DEMO-[A-F0-9]{20}$/.test(String(orderId||'')))return ()=>{};
+    return onSnapshot(doc(db,'publicOrderConfirmations',slug,'orders',orderId),snapshot=>{
+      if(!snapshot.exists())return;
+      const data=snapshot.data();
+      if(data.slug===slug && data.orderId===orderId && data.status==='confirmed')notify();
+    },error=>{
+      console.warn('購入確認の同期に失敗しました',error);
+      if(typeof onError==='function')onError(error);
+    });
+  };
   // Subscribe to the tiny live stock document, not every product separately.
   window.MEB_WATCH_PUBLIC_STOCK=(notify)=>onSnapshot(doc(db,'publishedStock',slug),snap=>{
     if(!snap.exists() || snap.metadata.fromCache)return;

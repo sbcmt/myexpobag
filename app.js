@@ -73,6 +73,7 @@
   }
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
   const state = { category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
+  let cancelOrderConfirmation=()=>{};
   // App updates are checked independently of the visible version (fixed at 1.0.1).
   const currentHashes = window.MEB_ASSET_HASHES || {};
   const hashSource = window.MEB_DIGEST_TEXT;
@@ -287,24 +288,36 @@
     d:order.appDiscountAmount,a:order.total
   });
   const renderQr=()=>{
-    if(checkoutStockError()){
-      $('#view').innerHTML=`<div class="page-body"><h1 class="page-title">購入QR</h1><p class="color-warning" role="alert">この商品は完売しました。MY BAGの内容をご確認ください。</p><button class="primary-btn" data-nav="#bag">MY BAGに戻る</button></div>`;
-      return;
-    }
+    // An issued QR belongs to a specific order. The shared inventory count can
+    // drop to zero when staff reserve its last item, but that does NOT mean the
+    // presenting customer has lost their item. Consult the order acknowledgement.
     if(!state.order){$('#view').innerHTML=`<div class="page-body"><h1 class="page-title">購入QR</h1><p class="page-subtitle">購入QRは再読み込みすると消えます。<br/>MY BAGから再度発行してください。</p><button class="primary-btn" data-nav="#bag">MY BAGを見る</button></div>`;return;}
     const order=state.order;
+    if(order.confirmed){
+      $('#view').innerHTML=`<div class="page-body qr-page" role="status" aria-live="polite" style="padding-top:32px;text-align:center">
+        <div style="font-size:60px;color:#16805a;line-height:1.2" aria-hidden="true">✓</div>
+        <h1 class="page-title" style="margin-top:18px">商品を確認しました。</h1>
+        <p class="page-subtitle" style="font-size:17px;font-weight:700;line-height:1.7;margin-top:12px">スタッフがご準備いたします。</p>
+        <section class="qr-card" style="margin-top:22px"><div class="qr-price-label">確認済み注文番号</div>
+          <div class="qr-order-id">${esc(order.id)}</div><div class="qr-price-label">お支払い予定額</div>
+          <div class="qr-price-base">${yen(order.total)}</div></section>
+        <button class="outline-btn" data-nav="#home" style="margin-top:24px">商品一覧に戻る</button>
+      </div>`;
+      return;
+    }
     $('#view').innerHTML=`<div class="page-body qr-page"><button class="back-button" data-nav="#bag" style="display:flex">${ICONS.left} MY BAGに戻る</button><div class="eyebrow">CHECKOUT QR</div><h1 class="page-title" style="margin-top:9px">購入QR</h1><p class="page-subtitle">この画面を出展者スタッフに見せてください。</p>
       <section class="qr-card"><div class="qr-status">動作確認用 QR</div><div class="qr-canvas-wrap"><canvas id="order-qr" width="480" height="480" role="img" aria-label="購入QRコード"></canvas></div>
       <div class="qr-price-box"><div class="qr-price-label">合計金額（税込）</div><div class="qr-price-base">${yen(order.beforeAppDiscount)}</div>
         ${order.appDiscountPercent>0?`<div class="qr-app-discount"><span>合計から${order.appDiscountPercent}%OFF</span><span>−${yen(order.appDiscountAmount)}</span></div><div class="qr-price-final"><span>割引後のお支払い金額</span><strong>${yen(order.total)}</strong></div>`:''}
-      </div><div class="qr-order-id">${esc(order.id)}</div><div class="qr-instructions">スタッフにQRを見せて<br/>お会計を行います。</div></section>
+      </div><div class="qr-order-id">${esc(order.id)}</div><div class="qr-instructions">スタッフがQRを読み込み後、<br/>商品をご準備いたします。</div>
+      ${checkoutStockError()?'<div role="status" style="margin-top:12px;font-size:12px;color:#945d23">在庫とご注文の状態を確認中です。スタッフへQRをご提示ください。</div>':''}</section>
       <div style="margin-top:18px"><div class="qr-data-row"><span>登録方法</span><strong>${order.registered?'名前・メールを登録':'登録をスキップ'}</strong></div>
         ${order.registered?`<div class="qr-data-row"><span>お名前</span><strong>${esc(order.name)}</strong></div><div class="qr-data-row"><span>メール</span><strong class="email-text">${esc(order.email)}</strong></div>`:''}
         <div class="qr-data-row"><span>ご注文点数</span><strong>${order.count}点</strong></div>
         ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.color||line.id)}</span><strong>×${line.qty}</strong></div>`).join('')}
         <div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>
         ${order.gift?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}</div>
-      <div class="demo-alert"><strong>現在はデモ用です。</strong><br/>QRには注文ID・商品ID・色コード・数量・金額・割引条件が入っています。名前とメールはQRには含まれず、サーバーにも保存していません。出展者側の注文記録・CSV連携と価格検証は未実装です。このQRを実際の支払い・特典交換には使用しないでください。</div>
+      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>登録特典の割引確認・顧客CSV保存・会計照合・在庫戻しは未実装です。金額の検証に通ったQRのみスタッフ側で在庫確保できます。実際の支払完了や商品引渡しを示すものではありません。</div>
       <button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;
     try{
       const code=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);code.addData(orderQrPayload(order));code.make();
@@ -429,6 +442,29 @@
       beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,
       appDiscountAmount:totals.appDiscountAmount,total:totals.total,
       gift:!!cfg.novelty.enabled&&totals.total>=cfg.novelty.minSpend};
+    cancelOrderConfirmation();cancelOrderConfirmation=()=>{};
+    const watchedId=id;
+    if(typeof window.MEB_WATCH_ORDER_CONFIRMATION==='function'){
+      try{
+        cancelOrderConfirmation=window.MEB_WATCH_ORDER_CONFIRMATION(watchedId,()=>{
+          if(!state.order||state.order.id!==watchedId||state.order.confirmed)return;
+          state.order.confirmed=true;
+          // After confirmation the order is independent of the remaining stock.
+          // Drop purchased quantities from this device's bag without removing
+          // another order and without displaying a misleading SOLD OUT toast.
+          for(const line of state.order.items){
+            const itemKey=skuKey(line.id,line.color?line.color.slice(line.id.length+1):'');
+            const current=state.cart[itemKey]||0;
+            if(current<=line.qty)delete state.cart[itemKey];
+            else state.cart[itemKey]=current-line.qty;
+          }
+          saveCart();
+          if(location.hash==='#qr')render();
+        },()=>{
+          if(state.order?.id===watchedId && location.hash==='#qr')toast('確認状況を取得できません。通信環境をご確認ください。');
+        });
+      }catch(error){console.warn('注文確認の監視を開始できませんでした',error);}
+    }
     closeModal();nav('#qr');
   }
   document.addEventListener('click', event=>{
@@ -534,7 +570,7 @@
       if(now===null || (Number.isInteger(now)&&now>=0))p.stock=now;
       if(previous!==0 && p.stock===0 && cartLines().some(l=>l.id===p.id))becameSold=true;
     }}
-    if(becameSold)toast('MY BAGの商品が完売しました。内容をご確認ください。');
+    if(becameSold && !state.order)toast('MY BAGの商品が完売しました。内容をご確認ください。');
     render();
   });
   if(window.MEB_CATALOG_REFRESH_PENDING){window.MEB_CATALOG_REFRESH_PENDING=false;window.MEB_CATALOG_REFRESH();}
