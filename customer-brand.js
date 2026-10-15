@@ -117,6 +117,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   const mode=settings?.discount?.mode||'none';
   const safeDiscount=['none','percent','amount'].includes(mode)?mode:'none';
   const discountValue=Number.isInteger(settings?.discount?.value)&&settings.discount.value>=0?settings.discount.value:0;
+  const discountMinSpend=Number.isInteger(settings?.discount?.minSpend)&&settings.discount.minSpend>=0?settings.discount.minSpend:0;
   const publicBanner=settings?.banner?.imageData&&typeof settings.banner.imageData==='string'&&settings.banner.imageData.length<=210000&&/^data:image\/(?:jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(settings.banner.imageData)?settings.banner.imageData:'';
   // All brands receive a lightweight default banner, including existing brand settings
   // created when no banner had yet been uploaded. Explicitly hiding a default is respected.
@@ -135,7 +136,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
       themePreset:typeof settings?.theme?.preset==='string'?settings.theme.preset:(typeof brandTheme.preset==='string'?brandTheme.preset:'natural'),
       customColors:settings?.theme?{}:(brandTheme.customColors||{})},
     event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',
-      appPurchaseDiscountMode:safeDiscount,appPurchaseDiscountValue:discountValue,
+      appPurchaseDiscountMode:safeDiscount,appPurchaseDiscountValue:discountValue,appPurchaseDiscountMinSpend:discountMinSpend,
       banner:{enabled:!bannerHidden,imageData:bannerImage,link:bannerLink}},
     categories,products,bundles,
     novelty:{enabled:noveltyMode!=='none',mode:noveltyMode,name:noveltyMode!=='none'?String(settings.novelty.name||''):'',minSpend:noveltyMode==='minimum'?settings.novelty.minSpend:0,productId:noveltyId},

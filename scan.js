@@ -65,16 +65,18 @@ function calculate(parsed,catalog,settings={}){
  const discountSettings=settings?.discount||{};
  const mode=['percent','amount'].includes(discountSettings.mode)?discountSettings.mode:'none';
  const value=Number.isInteger(discountSettings.value)?discountSettings.value:0;
+ const minSpend=Number.isInteger(discountSettings.minSpend)&&discountSettings.minSpend>=0?discountSettings.minSpend:0;
  if((mode==='percent'&&(value<1||value>100))||(mode==='amount'&&(value<1||value>100000000)))throw Error('アプリ割引設定が不正です。');
  if(raw.r!==0&&raw.r!==1)throw Error('QRの登録状態が不正です。');
  const registered=raw.r===1;
- const percent=registered&&mode==='percent'?value:0;
- const reduction=registered&&mode==='percent'?Math.min(base,Math.round(base*value/100)):registered&&mode==='amount'?Math.min(base,value):0;
+ const eligible=registered&&base>=minSpend;
+ const percent=eligible&&mode==='percent'?value:0;
+ const reduction=eligible&&mode==='percent'?Math.min(base,Math.round(base*value/100)):eligible&&mode==='amount'?Math.min(base,value):0;
  const finalAmount=base-reduction;
  if(!Number.isInteger(raw.a)||raw.s!==base||raw.p!==percent||raw.d!==reduction||raw.a!==finalAmount)throw Error('QRの金額と公開中の割引設定が一致しません。QRを再発行してください。');
  const n=settings?.novelty||{};
  const noveltyMode=['all','minimum','product'].includes(n.mode)?n.mode:'none';
- return {details,amount:finalAmount,discountMode:registered?mode:'none',discountValue:registered?value:0,discountRegistered:registered,
+ return {details,amount:finalAmount,discountMode:registered?mode:'none',discountValue:registered?value:0,discountMinSpend:minSpend,discountRegistered:registered,
    noveltyMode,noveltyName:noveltyMode==='none'?'':String(n.name||''),noveltyMinSpend:Number.isInteger(n.minSpend)?n.minSpend:0,noveltyProductId:noveltyMode==='product'?String(n.productId||''):''};
 }
 function checkStock(parsed,stock,privateMap=null){
@@ -125,7 +127,8 @@ function reprice(lines,bundles,offer={}){
  const base=Math.max(0,subtotal-Math.min(subtotal,saving));
  const active=offer.discountRegistered===true;
  const value=Number(offer.discountValue)||0;
- const discount=active&&offer.discountMode==='percent'?Math.min(base,Math.round(base*value/100)):active&&offer.discountMode==='amount'?Math.min(base,value):0;
+ const eligible=active&&base>=Math.max(0,Number(offer.discountMinSpend)||0);
+ const discount=eligible&&offer.discountMode==='percent'?Math.min(base,Math.round(base*value/100)):eligible&&offer.discountMode==='amount'?Math.min(base,value):0;
  return base-discount;
 }
 function giftLabel(order){
@@ -246,7 +249,7 @@ async function reserveAtScan(parsed,quote){
   tx.update(refs.stock,{quantities:newQuantities,variantQuantities:newVariantQuantities,updatedAt:serverTimestamp()});
   const data={orderId:raw.o,brandId:user.uid,originalItems:compactItems(items),originalAmount:latest.amount,
    originalLines,remainingLines:originalLines,bundles,items:compactItems(items),amount:latest.amount,status:'reserved',
-   discountMode:latest.discountMode,discountValue:latest.discountValue,discountRegistered:latest.discountRegistered,
+   discountMode:latest.discountMode,discountValue:latest.discountValue,discountMinSpend:latest.discountMinSpend,discountRegistered:latest.discountRegistered,
    noveltyMode:latest.noveltyMode,noveltyName:latest.noveltyName,noveltyMinSpend:latest.noveltyMinSpend,noveltyProductId:latest.noveltyProductId,
    scanTime:serverTimestamp(),updatedAt:serverTimestamp()};
   tx.set(refs.sale,data);

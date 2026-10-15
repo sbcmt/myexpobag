@@ -124,3 +124,7 @@ a.meb-banner-wrap{display:block;cursor:pointer;text-decoration:none}a.meb-banner
 .meb-intro-small{padding:10px 21px 18px;background:#fff}
 .novelty-tag{display:inline-block;vertical-align:middle;font-size:9px;line-height:1.5;padding:2px 7px;margin-left:6px;border-radius:5px;background:var(--sub);color:var(--ink);font-weight:750}
 .gift-qr-caution{padding:10px 12px;font-size:12px;text-align:left;background:#fff6e9;border:1px solid #edd4a6;border-radius:9px;line-height:1.6;color:#644823}
+
+/* v1.0.1: brand tagline directly above the image, not in the wordmark. */
+.meb-banner-caption{padding:15px 21px 0;color:#69756d;font-size:12px;line-height:1.8;font-weight:500;letter-spacing:.01em}
+.meb-banner-caption + .meb-banner-wrap{margin-top:9px}
