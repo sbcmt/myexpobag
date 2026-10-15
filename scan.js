@@ -138,7 +138,7 @@ function giftLabel(order){
  if(!lines.length)return '';
  const mode=order.noveltyMode;
  const eligible=mode==='all'||mode==='minimum'&&reprice(lines,order.bundles||[],order,true)>=order.noveltyMinSpend||mode==='product'&&lines.some(x=>x.id===order.noveltyProductId);
- return eligible?'ノベルティ対象：'+(order.noveltyName||'ノベルティ'):'';
+ return eligible?'🎁 ノベルティ対象｜'+(order.noveltyName||'ノベルティ')+'　※商品と一緒に必ずお渡しください':'';
 }
 function refreshGift(order){for(const id of ['review-gift','prepared-gift']){const el=$(id);if(!el)continue;const name=giftLabel(order);el.textContent=name;el.hidden=!name;}}
 
