@@ -13,16 +13,18 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   ]);
   const app=getApps().length?getApp():initializeApp(firebase);
   const db=getFirestore(app);
-  let handle,catalog,publishedTime=0;
+  let handle,catalog,publishedTime=0,settings=null;
   try{
     // Both reads are documents scoped to the exact URL brand slug.
-    const [handleSnap,catalogSnap]=await Promise.all([
+    const [handleSnap,catalogSnap,settingsSnap]=await Promise.all([
       getDoc(doc(db,'brandHandles',slug)),
-      getDoc(doc(db,'publishedCatalogs',slug))
+      getDoc(doc(db,'publishedCatalogs',slug)),
+      getDoc(doc(db,'brandSettings',slug))
     ]);
     if(!handleSnap.exists())fail('指定されたブランドは見つかりません。URLをご確認ください。');
     handle=handleSnap.data();
     catalog=catalogSnap.exists()?catalogSnap.data():null;
+    settings=settingsSnap.exists()&&settingsSnap.data().brandId===handle.brandId?settingsSnap.data():null;
     publishedTime=catalogSnap.updateTime?.toMillis?.()||0;
   }catch(error){
     if(error.customerMessage)throw error;
@@ -44,6 +46,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
       }
     },error=>console.warn('商品更新の購読に失敗',error));
   }catch(error){console.warn('商品更新の確認に失敗',error);}
+  try{let initial=JSON.stringify(settings||{});onSnapshot(doc(db,'brandSettings',slug),snap=>{if(snap.metadata.fromCache)return;const next=JSON.stringify(snap.exists()?snap.data():{});if(next===initial)return;initial=next;if(typeof window.MEB_CATALOG_REFRESH==='function')window.MEB_CATALOG_REFRESH();else window.MEB_CATALOG_REFRESH_PENDING=true;},err=>console.warn('設定の更新通知に失敗',err));}catch(err){console.warn(err);}
   const name=typeof handle.displayName==='string'&&handle.displayName.trim()?handle.displayName.trim():'ブランド公開準備中';
   // Published catalog is a deliberate public snapshot. Private drafts and
   // the demo FIELDNOTE catalog are never used as fallback.
@@ -96,17 +99,27 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   const novelty=catalog?.novelty && typeof catalog.novelty==='object'?catalog.novelty:{};
   const brandTheme=catalog?.theme && typeof catalog.theme==='object'?catalog.theme:{};
   const productIds=new Set(products.map(p=>p.id));
-  const safeBanner=event.banner?.enabled && productIds.has(event.banner?.productId)?event.banner:null;
+  const mode=settings?.discount?.mode||'none';
+  const safeDiscount=['none','percent','amount'].includes(mode)?mode:'none';
+  const discountValue=Number.isInteger(settings?.discount?.value)&&settings.discount.value>=0?settings.discount.value:0;
+  const publicBanner=settings?.banner?.enabled&&typeof settings.banner.imageData==='string'&&settings.banner.imageData.length<=210000&&/^data:image\/(?:jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(settings.banner.imageData)?settings.banner.imageData:'';
+  const modeLink=['none','product','url'].includes(settings?.banner?.linkMode)?settings.banner.linkMode:'none';
+  const valueLink=String(settings?.banner?.linkValue||'');
+  const productLink=modeLink==='product'&&productIds.has(valueLink)?valueLink:'';
+  const externalLink=modeLink==='url'&&valueLink.length<=2048&&/^https:\/\/[^\s]+$/i.test(valueLink)?(()=>{try{const u=new URL(valueLink);return u.protocol==='https:'&&!u.username&&!u.password?u.href:''}catch{return ''}})():'';
+  const bannerLink=productLink?{mode:'product',value:productLink}:externalLink?{mode:'url',value:externalLink}:{mode:'none',value:''};
+  const noveltyMode=['all','minimum','product'].includes(settings?.novelty?.mode)?settings.novelty.mode:'none';
+  const noveltyId=noveltyMode==='product'&&productIds.has(settings?.novelty?.productId)?settings.novelty.productId:'';
   return {
     version:'1.0.1',
     brand:{id:slug,name,description:'',logoUrl:typeof handle.logoUrl==='string'?handle.logoUrl:'',
-      themePreset:typeof brandTheme.preset==='string'?brandTheme.preset:'natural',
-      customColors:brandTheme.customColors||{}},
-    event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',appPurchaseDiscountPercent:
-      Number.isFinite(Number(event.appPurchaseDiscountPercent))?Number(event.appPurchaseDiscountPercent):0,
-      banner:safeBanner||{enabled:false}},
+      themePreset:typeof settings?.theme?.preset==='string'?settings.theme.preset:(typeof brandTheme.preset==='string'?brandTheme.preset:'natural'),
+      customColors:settings?.theme?{}:(brandTheme.customColors||{})},
+    event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',
+      appPurchaseDiscountMode:safeDiscount,appPurchaseDiscountValue:discountValue,
+      banner:publicBanner?{enabled:true,imageData:publicBanner,link:bannerLink}:{enabled:false,link:{mode:'none',value:''}}},
     categories,products,bundles,
-    novelty:{enabled:novelty.enabled===true,name:novelty.name||'',minSpend:Number(novelty.minSpend)||0,note:novelty.note||''},
+    novelty:{enabled:noveltyMode!=='none',mode:noveltyMode,name:noveltyMode!=='none'?String(settings.novelty.name||''):'',minSpend:noveltyMode==='minimum'?settings.novelty.minSpend:0,productId:noveltyId},
     line:{enabled:false}
   };
 };

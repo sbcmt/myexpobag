@@ -5,10 +5,12 @@
   if (!cfg) { document.body.textContent = '設定ファイルを読み込めませんでした。'; return; }
   const COLORS = {
     natural:   { main:'#315746', sub:'#F2EEE6', text:'#26372F' },
-    monotone:  { main:'#20252B', sub:'#EEF0F2', text:'#22262A' },
-    urban:     { main:'#284D87', sub:'#EEF3FA', text:'#1C2D42' },
+    monotone:  { main:'#252932', sub:'#F0F1F3', text:'#252932' },
+    urban:     { main:'#274D82', sub:'#EEF3FA', text:'#1C2D42' },
     soft:      { main:'#A04C67', sub:'#FAF0F3', text:'#432D37' },
     active:    { main:'#A9472B', sub:'#FFF2E2', text:'#3C2E25' },
+    lavender: { main:'#765E9A', sub:'#F3EFF9', text:'#33283F' },
+    sand:     { main:'#806544', sub:'#F9F4E8', text:'#3D3325' },
   };
   const ICONS = {
     bag: '<svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 8h16l-1 13H5L4 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>',
@@ -139,6 +141,11 @@
     root.style.setProperty('--badger', palette.sub);
     $('meta[name="theme-color"]').content=palette.main;
   };
+  const discountOffer=()=>{const mode=cfg.event?.appPurchaseDiscountMode||'none',value=Number(cfg.event?.appPurchaseDiscountValue)||0;return {mode:['percent','amount'].includes(mode)&&value>0?mode:'none',value};};
+  const discountText=()=>{const d=discountOffer();return d.mode==='percent'?`${d.value}%OFF`:d.mode==='amount'?`${yen(d.value)}引き`:'';};
+  const giftFor=(amount,lines=cartLines())=>{const n=cfg.novelty||{};return n.enabled && (n.mode==='all'||n.mode==='minimum'&&amount>=n.minSpend||n.mode==='product'&&lines.some(line=>line.id===n.productId));};
+  const giftTag=p=>cfg.novelty?.enabled&&cfg.novelty.mode==='product'&&cfg.novelty.productId===p.id?'<span class="novelty-tag">ノベルティ対象商品</span>':'';
+  const giftCaution='ノベルティの数量には限りがあります。なくなり次第終了します';
   const totalCalc = (registered=false) => {
     const listSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*normalPrice(line.product,line.color),0);
     const eventSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*unitPrice(line.product,line.color),0);
@@ -165,13 +172,15 @@
       details.push({name:bundle.name,count:quantity,saving:quantity*discount});
     }
     const beforeAppDiscount=Math.max(0,eventSubtotal-Math.min(eventSubtotal,saving));
-    const configuredRate=Number(cfg.event?.appPurchaseDiscountPercent??0);
-    const eligibleAppDiscountPercent=Number.isFinite(configuredRate)?Math.min(100,Math.max(0,configuredRate)):0;
-    const appDiscountPercent=registered?eligibleAppDiscountPercent:0;
-    const appDiscountAmount=Math.min(beforeAppDiscount,Math.round(beforeAppDiscount*appDiscountPercent/100));
+    const offer=discountOffer();
+    const activeMode=registered?offer.mode:'none';
+    const appDiscountPercent=activeMode==='percent'?offer.value:0;
+    const appDiscountAmount=activeMode==='percent'?Math.min(beforeAppDiscount,Math.round(beforeAppDiscount*offer.value/100)):
+      activeMode==='amount'?Math.min(beforeAppDiscount,offer.value):0;
     const total=beforeAppDiscount-appDiscountAmount;
     return {listSubtotal,eventSubtotal,eventSaving:listSubtotal-eventSubtotal,bundleSaving:Math.min(eventSubtotal,saving),
-      bundles:details,beforeAppDiscount,eligibleAppDiscountPercent,appDiscountPercent,appDiscountAmount,total};
+      bundles:details,beforeAppDiscount,appDiscountMode:activeMode,eligibleAppDiscountPercent:offer.mode==='percent'?offer.value:0,
+      appDiscountPercent,appDiscountAmount,total};
   };
   const cardProduct = p => `
     <article class="product-card">
@@ -181,7 +190,7 @@
       </button>
       <div class="product-info">
         <div class="product-subtitle">${esc((cfg.categories.find(c=>c.id===p.categoryId)||{}).name||'')} · ID: ${esc(p.id)}</div>
-        <h3 class="product-name">${esc(p.name)}</h3>
+        <h3 class="product-name">${esc(p.name)}${giftTag(p)}</h3>
         <div class="price-line"><div>
           ${fromPrice(p)<p.price?`<span class="price-original">${yen(p.price)}</span>`:''}
           <div class="price-current">${yen(fromPrice(p))}${variantsOf(p).length?'〜':''}</div>
@@ -194,7 +203,7 @@
     const logo = cfg.brand.logoUrl || '';
     const safeLogo = (/^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(logo) && logo.length <= 70000) ? logo : fileSafe(logo);
     const icon = safeLogo ? `<img src="${esc(safeLogo)}" alt=""/>` : esc(cfg.brand.name.trim().slice(0,1)||'B');
-    $('#site-header').innerHTML=`<div class="header-inner"><div class="brand-left"><div class="brand-icon">${icon}</div><div style="min-width:0"><div class="brand-wordmark">${esc(cfg.brand.name)}</div>${String(cfg.event.name||'').trim()?`<div class="brand-caption">${esc(cfg.event.name)}</div>`:''}</div></div><button class="header-action" data-nav="#bag" aria-label="MY BAGを開く" style="position:relative">${ICONS.bag}${itemCount()?`<span class="header-count">${itemCount()}</span>`:''}</button></div>`;
+    $('#site-header').innerHTML=`<div class="header-inner"><div class="brand-left"><div class="brand-icon">${icon}</div><div style="min-width:0"><div class="brand-wordmark">${esc(cfg.brand.name)}</div><div class="brand-subtitle">見つけた「好き」を、ひとつのBAGに。</div>${String(cfg.event.name||'').trim()?`<div class="brand-caption">${esc(cfg.event.name)}</div>`:''}</div></div><button class="header-action" data-nav="#bag" aria-label="MY BAGを開く" style="position:relative">${ICONS.bag}${itemCount()?`<span class="header-count">${itemCount()}</span>`:''}</button></div>`;
   };
   const renderPreview = () => {
     const q=new URLSearchParams(location.search);if(q.get('preview')!=='1') return '';
@@ -202,16 +211,20 @@
   };
   const renderHome = () => {
     const banner=cfg.event.banner;
+    const link=banner?.link||{};
+    const bannerHref=link.mode==='product'&&byId(link.value)?'#product/'+encodeURIComponent(link.value):link.mode==='url'&&/^https:\/\/[^\s]+$/i.test(link.value||'')?link.value:'';
+    const bannerOpen=!!bannerHref;
+    const bannerAttrs=link.mode==='url'?' target="_blank" rel="noopener noreferrer"':'';
     const items=cfg.products.filter(p => state.category==='all'||p.categoryId===state.category);
     const categories = [{id:'all',name:'すべて'},...cfg.categories];
     $('#view').innerHTML=`
-      <section class="intro"><div class="eyebrow">${esc(cfg.event.accentLabel)}</div><h1 class="intro-title">見つけた「好き」を、<br/>ひとつのBAGに。</h1><p class="intro-description">${esc(cfg.brand.description)}<br/>気になるアイテムを選んで、会場で受け取ろう。</p></section>
-      ${banner&&banner.enabled?`<a class="hero-banner" href="#product/${encodeURIComponent(banner.productId)}" aria-label="${esc(banner.title)}"><div class="hero-bg"></div>${banner.imageUrl&&fileSafe(banner.imageUrl)?`<img class="hero-product-image" src="${esc(fileSafe(banner.imageUrl))}" alt=""/>`:'<div class="hero-art"></div>'}<div class="hero-copy"><div style="font-size:10px;letter-spacing:1.5px;font-weight:800">${esc(banner.eyebrow)}</div><h2>${esc(banner.title)}</h2><p>${esc(banner.body||'')}</p><span class="hero-more">詳しく見る &nbsp;→</span></div></a>`:''}
+      ${banner?.enabled&&banner.imageData?`<${bannerOpen?'a':'div'} class="meb-banner-wrap"${bannerOpen?` href="${esc(bannerHref)}"${bannerAttrs} aria-label="バナーのリンク先を開く"`:''}><img src="${esc(banner.imageData)}" class="meb-banner" width="1200" height="400" alt="ブランドの展示会バナー"/></${bannerOpen?'a':'div'}>`:''}
+      <section class="intro meb-intro-small"><p class="intro-description">気になるアイテムを選んで、会場で受け取ろう。</p></section>
       ${renderPreview()}
       <section><div class="section-pad section-heading"><div><span class="eyebrow">CURATED COLLECTION</span><h2 class="section-title">ITEMS<span style="font-size:13px;color:#bdc5bd"> .</span></h2></div><span class="section-meta">${items.length} ITEMS</span></div>
       <div class="chips" role="group" aria-label="商品カテゴリ">${categories.map(c=>`<button class="chip ${state.category===c.id?'active':''}" data-category="${esc(c.id)}" aria-pressed="${state.category===c.id}">${esc(c.name)}</button>`).join('')}</div>
       <div class="section-pad"><div class="product-grid">${items.length?items.map(cardProduct).join(''):'<p>該当する商品がありません。</p>'}</div></div></section>
-      ${cfg.novelty.enabled?`<aside class="gift-info"><div class="gift-icon" aria-hidden="true">✦</div><div><div class="gift-text">${yen(cfg.novelty.minSpend)}以上のご購入でノベルティ対象</div><div class="gift-small">${esc(cfg.novelty.name)}をご用意。${esc(cfg.novelty.note)}</div></div></aside>`:''}
+
       <div class="float-space"></div>`;
   };
   // Only suggest sets that actually include the open product. The comparison baseline
@@ -255,7 +268,7 @@
       <div class="detail-cover">${imageTag(p)}</div>
       ${p.image2&&fileSafe(p.image2)?`<div class="detail-second"><img src="${esc(fileSafe(p.image2))}" alt="${esc(p.name)} サブ画像" loading="lazy"/></div>`:''}
       <div class="detail-en">${esc(category)}　／　商品ID：${esc(p.id)}</div>
-      <h1 class="detail-name">${esc(p.name)}</h1>
+      <h1 class="detail-name">${esc(p.name)}${giftTag(p)}</h1>
       <div class="detail-price">${unitPrice(p,color)<normalPrice(p,color)?`<span class="detail-original">${yen(normalPrice(p,color))}</span>`:''}${yen(unitPrice(p,color))} <span style="font-size:11px;font-weight:500">税込</span></div>
       ${soldOut(p)||variants.length&&color&&variantStock(p,color)===0?'<div class="price-extra" style="color:#c02d30;font-weight:800">SOLD OUT</div>':p.preorder?`<div class="price-extra">受注予約・${esc(releaseText(p))}</div>`:unitPrice(p,color)<normalPrice(p,color)?'<div class="price-extra">展示会限定価格</div>':''}
       ${variants.length?`<section class="variants"><p class="variant-label">バリエーションを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}" ${v.stock===0?'disabled':''}>${esc(v.name)}${v.stock===0?'（SOLD OUT）':''}</button>`).join('')}</div></section>`:''}
@@ -277,9 +290,9 @@
       ${totals.eventSaving>0?`<div class="order-row"><span class="order-label">展示会限定価格による割引</span><span class="order-positive">−${yen(totals.eventSaving)}</span></div>`:''}
       ${totals.bundles.map(b=>`<div class="order-row"><span class="order-label">セット割引：${esc(b.name)} × ${b.count}</span><span class="order-positive">−${yen(b.saving)}</span></div>`).join('')}
       <div class="order-total"><span>商品合計（税込）</span><strong>${yen(totals.beforeAppDiscount)}</strong></div>
-      ${totals.eligibleAppDiscountPercent>0?`<div class="register-offer">お名前とメール登録で <strong>さらに${totals.eligibleAppDiscountPercent}%OFF</strong><br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:''}
+      ${discountOffer().mode!=='none'?`<div class="register-offer">お名前とメール登録で <strong>さらに${discountText()}</strong><br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:''}
       <div class="tiny-text" style="text-align:right;margin-top:9px">お支払いは会場で</div></section>
-      ${cfg.novelty.enabled?`<div class="gift-eligible"><strong>✦ ノベルティ特典</strong><p>${yen(cfg.novelty.minSpend)}以上のお支払いで ${esc(cfg.novelty.name)} の対象。${esc(cfg.novelty.note)}</p></div>`:''}
+      ${cfg.novelty?.enabled&&cfg.novelty.mode==='all'?`<div class="gift-eligible"><strong>✦ ${esc(cfg.novelty.name)}</strong><p>購入者全員が対象です。${esc(giftCaution)}</p></div>`:''}
       <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length||checkoutStockError()?'disabled':''}>購入QRを開く　→</button><p class="helptext">お名前・メール登録で割引（設定時）。登録せず購入することもできます。<br/>実際の注文はまだ送信されません。</p></div>`:
       `<div class="empty-cart"><span class="empty-cart-emoji">▢</span><h2>MY BAGは空です</h2><p>気になった商品をBAGに追加しましょう。</p><button class="outline-btn" data-nav="#home">商品を探す　→</button></div>`}</div>`;
   };
@@ -317,7 +330,7 @@
     $('#view').innerHTML=`<div class="page-body qr-page"><button class="back-button" data-nav="#bag" style="display:flex">${ICONS.left} MY BAGに戻る</button><div class="eyebrow">CHECKOUT QR</div><h1 class="page-title" style="margin-top:9px">購入QR</h1><p class="page-subtitle">この画面を出展者スタッフに見せてください。</p>
       <section class="qr-card"><div class="qr-status">動作確認用 QR</div><div class="qr-canvas-wrap"><canvas id="order-qr" width="480" height="480" role="img" aria-label="購入QRコード"></canvas></div>
       <div class="qr-price-box"><div class="qr-price-label">合計金額（税込）</div><div class="qr-price-base">${yen(order.beforeAppDiscount)}</div>
-        ${order.appDiscountPercent>0?`<div class="qr-app-discount"><span>合計から${order.appDiscountPercent}%OFF</span><span>−${yen(order.appDiscountAmount)}</span></div><div class="qr-price-final"><span>割引後のお支払い金額</span><strong>${yen(order.total)}</strong></div>`:''}
+        ${order.appDiscountAmount>0?`<div class="qr-app-discount"><span>アプリ割引（${order.appDiscountMode==='percent'?order.appDiscountPercent+'%':yen(discountOffer().value)+'引き'}）</span><span>−${yen(order.appDiscountAmount)}</span></div><div class="qr-price-final"><span>割引後のお支払い金額</span><strong>${yen(order.total)}</strong></div>`:''}
       </div><div class="qr-order-id">${esc(order.id)}</div><div class="qr-instructions">スタッフがQRを読み込み後、<br/>商品をご準備いたします。</div>
       ${checkoutStockError()?'<div role="status" style="margin-top:12px;font-size:12px;color:#945d23">在庫とご注文の状態を確認中です。スタッフへQRをご提示ください。</div>':''}</section>
       <div style="margin-top:18px"><div class="qr-data-row"><span>登録方法</span><strong>${order.registered?'名前・メールを登録':'登録をスキップ'}</strong></div>
@@ -325,8 +338,8 @@
         <div class="qr-data-row"><span>ご注文点数</span><strong>${order.count}点</strong></div>
         ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.color||line.id)}</span><strong>×${line.qty}</strong></div>`).join('')}
         <div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>
-        ${order.gift?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}</div>
-      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>登録特典の割引確認・顧客CSV保存・会計照合・確保放置時の自動解除は未実装です。金額の検証に通ったQRのみスタッフ側で在庫確保できます。実際の支払完了や商品引渡しを示すものではありません。</div>
+        ${order.gift?`${cfg.novelty.mode!=='minimum'?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}<div class="gift-qr-caution">${esc(giftCaution)}</div>`:''}</div>
+      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>登録の本人確認・顧客CSV保存・会計照合・確保放置時の自動解除は未実装です。金額の検証に通ったQRのみスタッフ側で在庫確保できます。実際の支払完了や商品引渡しを示すものではありません。</div>
       <button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;
     try{
       const code=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);code.addData(orderQrPayload(order));code.make();
@@ -412,7 +425,7 @@
     const offer=totalCalc(true),original=totalCalc(false);
     $('#modal-root').innerHTML=`<div class="modal-backdrop" id="checkout-overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
       <div class="modal-heading"><h2 id="checkout-title" class="modal-title">購入QRを開く</h2><button type="button" class="icon-button" data-close-modal aria-label="閉じる">${ICONS.close}</button></div>
-      ${offer.eligibleAppDiscountPercent>0?`<div class="checkout-offer">お名前とメールを登録すると <strong>合計から${offer.eligibleAppDiscountPercent}%OFF</strong><br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:''}
+      ${discountOffer().mode!=='none'?`<div class="checkout-offer">お名前とメールを登録すると <strong>合計から${discountText()}</strong><br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:''}
       <p class="modal-desc">登録するか、入力せずに購入QRを表示するか選べます。</p>
       <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button></div>
       <form id="checkout-form"><div id="registration-fields">
@@ -420,8 +433,8 @@
         <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>
         <label class="form-check"><input type="checkbox" name="news"/><span>新商品やイベントのお知らせをメールで受け取る（任意）</span></label>
         <p class="tiny-text">購入者情報の登録と、広告メールを受け取る同意は別です。出展者によるプライバシー案内は管理画面接続時に追加します。</p></div>
-        <div id="skip-description" class="skip-description" hidden>登録なしでQRを発行します。${offer.eligibleAppDiscountPercent>0?'アプリ購入割引は適用されません。':'商品・セット割引はそのまま適用されます。'}</div>
-        <div class="checkout-price-preview" id="checkout-price-preview">${offer.eligibleAppDiscountPercent>0?`<span>登録後のお支払い金額</span><strong>${yen(offer.total)}</strong>`:`<span>お支払い予定額</span><strong>${yen(offer.total)}</strong>`}</div>
+        <div id="skip-description" class="skip-description" hidden>登録なしでQRを発行します。${discountOffer().mode!=='none'?'アプリ購入割引は適用されません。':'商品・セット割引はそのまま適用されます。'}</div>
+        <div class="checkout-price-preview" id="checkout-price-preview">${discountOffer().mode!=='none'?`<span>登録後のお支払い金額</span><strong>${yen(offer.total)}</strong>`:`<span>お支払い予定額</span><strong>${yen(offer.total)}</strong>`}</div>
         <p class="tiny-text" style="color:#955b34"><strong>デモ：</strong>お名前・メールはこの画面内のみで扱い、サーバーへ送信しません。QRにも入れません。</p>
         <div class="form-error" id="checkout-error" role="alert"></div><button class="primary-btn" type="submit">購入QRを表示する →</button></form></section></div>`;
     $('#buyer-name').focus();
@@ -434,7 +447,7 @@
     $('#buyer-name').required=register;$('#buyer-email').required=register;
     document.querySelectorAll('[data-checkout-mode]').forEach(btn=>{const active=btn.dataset.checkoutMode===mode;btn.classList.toggle('active',active);btn.setAttribute('aria-pressed',String(active));});
     const totals=totalCalc(register);
-    $('#checkout-price-preview').innerHTML=`<span>${register&&totals.appDiscountPercent>0?'割引後の': ''}お支払い予定額</span><strong>${yen(totals.total)}</strong>`;
+    $('#checkout-price-preview').innerHTML=`<span>${register&&totals.appDiscountAmount>0?'割引後の': ''}お支払い予定額</span><strong>${yen(totals.total)}</strong>`;
     $('#checkout-error').textContent='';
   }
   function closeModal(){state.modalOpen=false;$('#modal-root').innerHTML='';}
@@ -450,9 +463,9 @@
     const items=cartLines().map(line=>({id:line.id,color:line.color?line.id+'_'+line.color:'',qty:line.qty}));
     state.order={id,registered,name,email,newsletterConsent:registered&&fd.get('news')==='on',createdAt:new Date().toISOString(),
       items,count:itemCount(),listSubtotal:totals.listSubtotal,eventSubtotal:totals.eventSubtotal,bundleSaving:totals.bundleSaving,
-      beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,
+      beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,appDiscountMode:totals.appDiscountMode,
       appDiscountAmount:totals.appDiscountAmount,total:totals.total,
-      gift:!!cfg.novelty.enabled&&totals.total>=cfg.novelty.minSpend};
+      gift:giftFor(totals.total)};
     cancelOrderConfirmation();cancelOrderConfirmation=()=>{};
     const watchedId=id;
     if(typeof window.MEB_WATCH_ORDER_CONFIRMATION==='function'){
