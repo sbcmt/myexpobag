@@ -128,3 +128,6 @@ a.meb-banner-wrap{display:block;cursor:pointer;text-decoration:none}a.meb-banner
 /* v1.0.1: brand tagline directly above the image, not in the wordmark. */
 .meb-banner-caption{padding:15px 21px 0;color:#69756d;font-size:12px;line-height:1.8;font-weight:500;letter-spacing:.01em}
 .meb-banner-caption + .meb-banner-wrap{margin-top:9px}
+
+/* v1.0.1: unmet app-discount threshold must not look like an active offer. */
+.offer-unmet{margin:15px 0 0;padding:0;background:none;border:0;border-radius:0;color:#b83229;font-size:12px;font-weight:400;line-height:1.9}
