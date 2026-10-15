@@ -5,7 +5,8 @@
 <section class="panel"><h2>CSVを個別ダウンロード</h2><div class="exports">
 <div class="export"><h3>① メーリングリスト</h3><p>購入QRで名前・メールを登録した全員。メール配信同意の有無、登録日時、注文状態を含む。配信希望「いいえ」には広告メールを送らないでください。</p><button id="mail" disabled>登録者CSVを保存</button></div>
 <div class="export"><h3>② 購入商品一覧</h3><p>スタッフが対応完了した注文のみ。商品ID・商品名・バリエーション・数量・単価・注文合計。個人の住所や電話番号は含みません。</p><button id="sales" disabled>購入商品CSVを保存</button></div>
-<div class="export"><h3>③ 予約商品の配送先</h3><p>予約商品を含む対応完了注文のみ。商品と発送先・電話番号・送料・注文額を含む機密データ。</p><button id="shipping" disabled>配送専用CSVを保存</button></div>
+<div class="export"><h3>③ 予約商品の配送先</h3><p>予約商品を含む対応完了注文のみ。配送先入力が完了した注文だけを、予約商品ID順に並べて出力します。郵便番号・電話番号を保護したExcelにも対応します。</p><button id="shipping" disabled>配送専用CSVを保存</button><button id="shipping-xlsx" disabled>配送Excel（.xlsx）を保存</button><button id="shipping-xls" disabled>配送Excel（.xls）を保存</button></div>
 </div><p class="warning"><strong>個人情報の取扱注意</strong>：CSVは暗号化されていない通常のファイルです。共有PCへの保存、メール添付、クラウドへの無断共有を避け、発送・利用目的が終わったら安全に削除してください。ダウンロード操作自体には追加認証がありません。</p></section>
+<section class="panel"><h2>配送先入力待ち</h2><p class="help">QR確認済みでも、予約商品の配送情報が未登録の注文はこちらに表示します。配送CSV・Excelには含まれません。</p><ul class="list" id="pending-delivery"></ul></section>
 <section class="panel"><h2>発送完了後の情報削除</h2><p class="help">発送済みの予約注文について、Firebaseに保存した顧客情報（配送先・氏名・メール）を注文単位で削除できます。<strong>削除後はCSVに再出力できません。</strong>購入商品履歴は残ります。</p><ul class="list" id="deletable"><li>先に「最新データを取得」を押してください。</li></ul></section>
-<p class="danger">公開サービスとして本運用する前に、Firebase App Check、不正リクエスト対策、管理者の多要素認証、情報保管期間・プライバシーポリシーの整備、セキュリティ検証が必要です。今回の実装は本番レベルの安全性を保証するものではありません。</p></main><footer class="meb-copyright">© 2021–2026 dobhar-chu</footer><script type="module" src="./customer-data.js?asset=20261015-csv-shipping-v101"></script></body></html>
+<p class="danger">公開サービスとして本運用する前に、Firebase App Check、不正リクエスト対策、管理者の多要素認証、情報保管期間・プライバシーポリシーの整備、セキュリティ検証が必要です。今回の実装は本番レベルの安全性を保証するものではありません。</p></main><footer class="meb-copyright">© 2021–2026 dobhar-chu</footer><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script><script type="module" src="./customer-data.js?asset=20261015-csv-shipping-v101"></script></body></html>

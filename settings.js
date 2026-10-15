@@ -12,7 +12,12 @@ const radio=(name)=>document.querySelector('input[name="'+name+'"]:checked')?.va
 const setRadio=(name,value)=>{const el=document.querySelector('input[name="'+name+'"][value="'+value+'"]');if(el)el.checked=true};
 function fields(){const mode=radio('discount-mode');$('discount-fields').hidden=mode==='none';$('discount-label').textContent=mode==='percent'?'割引率（％・必須）':'割引額（円・必須）';$('discount-value').max=mode==='percent'?'100':'100000000';const enabled=$('novelty-enabled').checked;const noveltyMode=radio('novelty-mode');$('novelty-fields').hidden=!enabled;$('minimum-fields').hidden=!enabled||noveltyMode!=='minimum';$('product-fields').hidden=!enabled||noveltyMode!=='product'}
 function bannerFields(){const mode=$('banner-link-mode').value;$('banner-product-wrap').hidden=mode!=='product';$('banner-url-wrap').hidden=mode!=='url';}
-function shippingFields(){const threshold=radio('shipping-mode')==='threshold';$('shipping-threshold-fields').hidden=!threshold;$('shipping-threshold').required=threshold;$('shipping-charge').required=threshold;}
+const shippingUtils=window.MEB_SHIPPING;
+if(!shippingUtils)throw Error('都道府県別送料プログラムを読み込めません。');
+for(const pref of shippingUtils.prefectures){const el=document.createElement('div');const lbl=document.createElement('label');lbl.textContent=pref;const inp=document.createElement('input');inp.type='number';inp.min='0';inp.max='100000';inp.step='1';inp.value='0';inp.dataset.shippingPref=pref;lbl.append(inp);el.append(lbl);$('shipping-prefecture-rates').append(el);}
+$('shipping-fill').onclick=()=>{const v=$('shipping-all-charge').value;if(!/^\d+$/.test(v)||Number(v)>100000){status('一括金額は0〜100000円で入力してください。',true);return;}document.querySelectorAll('[data-shipping-pref]').forEach(i=>i.value=v);status('各都道府県に反映しました。「設定を保存」で確定します。');};
+function shippingFields(){const mode=radio('shipping-mode');const threshold=mode==='threshold'||mode==='prefecture';$('shipping-threshold-fields').hidden=!threshold;$('shipping-threshold').required=mode==='threshold';$('shipping-charge-wrap').hidden=mode!=='threshold';$('shipping-charge').required=mode==='threshold';$('prefecture-shipping-fields').hidden=mode!=='prefecture';$('shipping-threshold').placeholder=mode==='prefecture'?'0＝下限なし（常に都道府県別送料）':'例：5000';}
+
 document.querySelectorAll('input[name="shipping-mode"]').forEach(el=>el.addEventListener('change',shippingFields));shippingFields();
 $('banner-enabled').checked=true;
 $('banner-link-mode').addEventListener('change',bannerFields);bannerFields();
@@ -51,8 +56,10 @@ $('save').onclick=async()=>{
  try{
   const mode=radio('discount-mode');const value=mode==='none'?0:positive('discount-value');const discountMinSpend=mode==='none'?0:positive('discount-minimum');if(mode==='percent'&&value>100)throw Error('割引率は1〜100％です。');if(value>100000000)throw Error('割引額の上限は1億円です。');
   const shippingMode=radio('shipping-mode');
-  const shippingThreshold=shippingMode==='threshold'?positive('shipping-threshold'):0;
+  const shippingThreshold=shippingMode==='threshold'?positive('shipping-threshold'):shippingMode==='prefecture'?($('shipping-threshold').value.trim()===''?0:Number($('shipping-threshold').value)):0;
+  if(!Number.isSafeInteger(shippingThreshold)||shippingThreshold<0||shippingThreshold>100000000)throw Error('送料当社負担の下限金額をご確認ください。');
   const shippingCharge=shippingMode==='threshold'?positive('shipping-charge'):0;
+  const shippingRates={};for(const input of document.querySelectorAll('[data-shipping-pref]')){const v=input.value.trim();if(!/^\d+$/.test(v)||Number(v)>100000)throw Error(input.dataset.shippingPref+'の送料は0〜100000円で指定してください。');shippingRates[input.dataset.shippingPref]=Number(v);}
   if(shippingCharge>100000)throw Error('送料は10万円以下にしてください。');
   const novMode=$('novelty-enabled').checked?radio('novelty-mode'):'none';const name=novMode==='none'?'':$('novelty-name').value.trim();if(novMode!=='none'&&!name)throw Error('ノベルティ名を入力してください。');if([...name].length>50)throw Error('ノベルティ名は50文字以内です。');
   const minSpend=novMode==='minimum'?positive('novelty-minimum'):0;const productId=novMode==='product'?$('novelty-product').value:'';if(novMode==='product'&&!productId)throw Error('ノベルティ対象商品を選択してください。');
@@ -73,7 +80,7 @@ $('save').onclick=async()=>{
   if(bannerData && (!/^data:image\/(?:webp|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(bannerData)||bannerData.length>210000))throw Error('バナー画像の保存形式が現在の仕様と異なります。画像を再登録してください。');
   busy=true;$('save').disabled=true;status('保存しています…');
   const savedNovelty={mode:novMode,name,minSpend,productId};
-  await setDoc(doc(db,'brandSettings',slug),{brandId:owner.uid,slug,theme:{preset},banner:{enabled:$('banner-enabled').checked,hiddenDefault:!$('banner-enabled').checked&&!bannerData,imageData:bannerData,linkMode,linkValue},discount:{mode,value,minSpend:discountMinSpend},novelty:savedNovelty,shipping:{mode:shippingMode,threshold:shippingThreshold,charge:shippingCharge},updatedAt:serverTimestamp()});
+  await setDoc(doc(db,'brandSettings',slug),{brandId:owner.uid,slug,theme:{preset},banner:{enabled:$('banner-enabled').checked,hiddenDefault:!$('banner-enabled').checked&&!bannerData,imageData:bannerData,linkMode,linkValue},discount:{mode,value,minSpend:discountMinSpend},novelty:savedNovelty,shipping:{mode:shippingMode,threshold:shippingThreshold,charge:shippingCharge,rates:shippingMode==='prefecture'?shippingRates:{}},updatedAt:serverTimestamp()});
   // Verify the state on the server, not Firestore's local cache.
   const verified=await getDocFromServer(doc(db,'brandSettings',slug));
   const stored=verified.data()?.novelty;
@@ -96,7 +103,7 @@ else{
    for(const p of list){for(const target of ['novelty-product','banner-product']){const option=document.createElement('option');option.value=p.id;option.textContent=p.id+'｜'+p.name;$(target).append(option)}}
    const snap=await getDocFromServer(doc(db,'brandSettings',slug));if(snap.exists()){
     const d=snap.data();preset=presets[d.theme?.preset]?d.theme.preset:'natural';bannerData=d.banner?.imageData||'';$('banner-enabled').checked=d.banner?.hiddenDefault!==true&&(!!bannerData?d.banner?.enabled!==false:true);$('banner-link-mode').value=['none','product','url'].includes(d.banner?.linkMode)?d.banner.linkMode:'none';if(d.banner?.linkMode==='product')$('banner-product').value=d.banner.linkValue||'';if(d.banner?.linkMode==='url')$('banner-url').value=d.banner.linkValue||'';setRadio('discount-mode',d.discount?.mode||'none');$('discount-value').value=d.discount?.value||'';$('discount-minimum').value=d.discount?.minSpend||'';
-    const shipping=d.shipping||{};setRadio('shipping-mode',shipping.mode==='threshold'?'threshold':'all');$('shipping-threshold').value=shipping.threshold||'';$('shipping-charge').value=shipping.charge||'';shippingFields();
+    const shipping=d.shipping||{};setRadio('shipping-mode',['threshold','prefecture'].includes(shipping.mode)?shipping.mode:'all');$('shipping-threshold').value=shipping.threshold||'';$('shipping-charge').value=shipping.charge||'';for(const inp of document.querySelectorAll('[data-shipping-pref]'))inp.value=Number.isInteger(shipping.rates?.[inp.dataset.shippingPref])?shipping.rates[inp.dataset.shippingPref]:0;shippingFields();
     const n=d.novelty||{};$('novelty-enabled').checked=!!n.mode&&n.mode!=='none';setRadio('novelty-mode',n.mode==='none'?'all':n.mode||'all');$('novelty-name').value=n.name||'';$('novelty-minimum').value=n.minSpend||'';$('novelty-product').value=n.productId||'';updateNoveltyStatus(n);
    }else{updateNoveltyStatus({mode:'none'});}
    previewTheme();previewBanner();fields();bannerFields();$('loading').hidden=true;$('shell').hidden=false;$('save').disabled=false;

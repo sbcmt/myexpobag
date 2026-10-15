@@ -129,7 +129,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   const externalLink=modeLink==='url'&&valueLink.length<=2048&&/^https:\/\/[^\s]+$/i.test(valueLink)?(()=>{try{const u=new URL(valueLink);return u.protocol==='https:'&&!u.username&&!u.password?u.href:''}catch{return ''}})():'';
   const bannerLink=productLink?{mode:'product',value:productLink}:externalLink?{mode:'url',value:externalLink}:{mode:'none',value:''};
   const rawShipping=settings?.shipping||{};
-  const shipping={mode:rawShipping.mode==='threshold'?'threshold':'all',threshold:Math.max(0,Math.floor(Number(rawShipping.threshold)||0)),charge:Math.max(0,Math.floor(Number(rawShipping.charge)||0))};
+  const shipping={mode:['threshold','prefecture'].includes(rawShipping.mode)?rawShipping.mode:'all',threshold:Math.max(0,Math.floor(Number(rawShipping.threshold)||0)),charge:Math.max(0,Math.floor(Number(rawShipping.charge)||0)),rates:rawShipping.rates&&typeof rawShipping.rates==='object'?rawShipping.rates:{}};
   const noveltyMode=['all','minimum','product'].includes(settings?.novelty?.mode)?settings.novelty.mode:'none';
   const noveltyId=noveltyMode==='product'&&productIds.has(settings?.novelty?.productId)?settings.novelty.productId:'';
   return {

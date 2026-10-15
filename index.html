@@ -19,7 +19,7 @@
       'use strict';
       // Displayed product version stays 1.0.1. Each launch fetches the real live files.
       // No manual edit to release.json is required to detect an app/config update.
-      const files=['index.html','styles.css','firebase-config.js','customer-brand.js','customer-checkout.js','qr.js','app.js'];
+      const files=['index.html','styles.css','firebase-config.js','customer-brand.js','customer-checkout.js','shipping-utils.js','qr.js','app.js'];
       const cacheToken=String(Date.now())+'-'+Math.random().toString(36).slice(2,9);
       const digest=text=>{
         // Two independent lightweight 32-bit hashes. Only used for change detection.
@@ -93,6 +93,7 @@
         const customerConfig=await window.MEB_LOAD_CUSTOMER_BRAND(slug);
         window.MEB_CONFIG=customerConfig;
         await import('./customer-checkout.js?asset=20261015-csv-shipping-v101');
+        await runScript('shipping-utils.js');
         await runScript('qr.js');
         await runScript('app.js');
       }catch(error){

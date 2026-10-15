@@ -74,18 +74,21 @@ function calculate(parsed,catalog,settings={}){
  const reduction=eligible&&mode==='percent'?Math.min(base,Math.round(base*value/100)):eligible&&mode==='amount'?Math.min(base,value):0;
  const hasPreorder=details.some(x=>published.get(x.id)?.preorder===true);
  const sh=settings?.shipping||{};
- const shipMode=sh.mode==='threshold'?'threshold':'all';
- const shipThreshold=shipMode==='threshold'?Math.max(0,Math.floor(Number(sh.threshold)||0)):0;
- const shipCharge=shipMode==='threshold'?Math.max(0,Math.floor(Number(sh.charge)||0)):0;
- if(shipThreshold>100000000||shipCharge>100000)throw Error('送料設定が不正です。');
- const shippingFee=hasPreorder&&shipMode==='threshold'&&base<shipThreshold?shipCharge:0;
+ const shipMode=['threshold','prefecture'].includes(sh.mode)?sh.mode:'all';
+ const shipThreshold=shipMode!=='all'?Math.max(0,Math.floor(Number(sh.threshold)||0)):0;
+ const shippingPrefecture=shipMode==='prefecture'&&hasPreorder?String(raw.f||''):'';
+ if(shipMode==='prefecture'&&hasPreorder&&!window.MEB_SHIPPING.validPref(shippingPrefecture))throw Error('送料計算用の都道府県が未選択です。お客様にQRを作り直していただいてください。');
+ const shipCharge=shipMode==='prefecture'&&hasPreorder?sh.rates?.[shippingPrefecture]:shipMode==='threshold'?Math.max(0,Math.floor(Number(sh.charge)||0)):0;
+ if(!Number.isInteger(shipCharge)||shipThreshold>100000000||shipCharge>100000||shipCharge<0)throw Error('都道府県別送料の設定を確認してください。');
+ const shippingFee=window.MEB_SHIPPING.calc(sh,base,hasPreorder,shippingPrefecture);
+ if(shippingFee===null)throw Error('送料計算の都道府県が不足しています。');
  const finalAmount=base-reduction+shippingFee;
  if(!Number.isInteger(raw.h)||raw.h!==shippingFee)throw Error('QRの送料が最新設定と一致しません。購入QRを作り直してください。');
  if(!Number.isInteger(raw.a)||raw.s!==base||raw.p!==percent||raw.d!==reduction||raw.a!==finalAmount)throw Error('QRの金額と公開中の割引設定が一致しません。QRを再発行してください。');
  const n=settings?.novelty||{};
  const noveltyMode=['all','minimum','product'].includes(n.mode)?n.mode:'none';
  return {details,amount:finalAmount,discountMode:registered?mode:'none',discountValue:registered?value:0,discountMinSpend:minSpend,discountRegistered:registered,
-   hasPreorder,shippingFee,shippingMode:shipMode,shippingThreshold:shipThreshold,shippingCharge:shipCharge,
+   hasPreorder,shippingFee,shippingMode:shipMode,shippingThreshold:shipThreshold,shippingCharge:shipCharge,shippingPrefecture,
    noveltyMode,noveltyName:noveltyMode==='none'?'':String(n.name||''),noveltyMinSpend:Number.isInteger(n.minSpend)?n.minSpend:0,noveltyProductId:noveltyMode==='product'?String(n.productId||''):''};
 }
 function checkStock(parsed,stock,privateMap=null){
@@ -140,7 +143,7 @@ function reprice(lines,bundles,offer={},beforeAppDiscountOnly=false){
  const eligible=active&&base>=Math.max(0,Number(offer.discountMinSpend)||0);
  const discount=eligible&&offer.discountMode==='percent'?Math.min(base,Math.round(base*value/100)):eligible&&offer.discountMode==='amount'?Math.min(base,value):0;
  const hasPreorder=lines.some(x=>x.preorder===true);
- const shippingFee=hasPreorder&&offer.shippingMode==='threshold'&&base<(offer.shippingThreshold||0)?(offer.shippingCharge||0):0;
+ const shippingFee=hasPreorder&&['threshold','prefecture'].includes(offer.shippingMode)&&((offer.shippingThreshold||0)<=0||base<(offer.shippingThreshold||0))?(offer.shippingCharge||0):0;
  return base-discount+shippingFee;
 }
 // Show novelty using the pre-app-discount subtotal; maintain this after item cancellation.
@@ -201,7 +204,7 @@ function acceptedView(order,already=false){
 function prepView(){
  if(!candidate)return;
  fillItems('prepared-items',candidate.lines,true);
- $('prepared-total').textContent=yen(candidate.amount);$('prepared-shipping').textContent=candidate.hasPreorder?'予約商品：'+(candidate.shippingFee>0?'送料 '+yen(candidate.shippingFee):'送料当社負担')+'。発送先は顧客CSV画面で管理してください。':'';refreshGift(candidate);
+ $('prepared-total').textContent=yen(candidate.amount);$('prepared-shipping').textContent=candidate.hasPreorder?'予約商品：'+(candidate.shippingFee>0?'送料 '+yen(candidate.shippingFee):'送料当社負担')+'。お客様がQR読取後に配送先を入力します。':'';refreshGift(candidate);
  $('prepared-panel').querySelector('.status-badge').textContent='在庫確保済み';
  $('prepared-panel').querySelector('.step-hint').textContent='準備する商品と数量はこちらです。不要な商品はこの画面からも取り消せます。';
  $('handoff').hidden=false;display('prepared');
@@ -235,8 +238,8 @@ async function reserveAtScan(parsed,quote){
   if(latest.amount!==quote.amount)throw Error('商品価格が変更されました。QRを作り直してください。');
   const customer=customerSnap.exists()?customerSnap.data():null;
   if(raw.r===1 && (!customer||customer.registered!==true||customer.brandId!==user.uid||customer.slug!==brand.slug))throw Error('お客様の登録データを確認できません。QRを再発行してください。');
-  if(raw.r===0&&customer)throw Error('注文の登録状態が一致しません。QRを再発行してください。');
-  if(latest.hasPreorder && (!customer||customer.hasPreorder!==true||!/^\d{7}$/.test(customer.shipping?.postal||'')||!customer.shipping?.address||!/^\d{10,11}$/.test(customer.shipping?.phone||'')))throw Error('予約商品の発送先が登録されていません。購入QRを再発行してください。');
+  if(raw.r===0&&customer&&customer.registered===true)throw Error('注文の登録状態が一致しません。QRを再発行してください。');
+  if(latest.hasPreorder && (!customer||customer.hasPreorder!==true||customer.brandId!==user.uid||customer.shipping?.prefecture!==latest.shippingPrefecture))throw Error('予約商品の受付情報が見つかりません。購入QRを再発行してください。');
   checkStock(parsed,stock,privateMap);
   const originalLines=latest.details.map(x=>({id:x.id,variant:x.variant,qty:x.qty,key:x.key,name:x.name,variantName:x.variantName,unitPrice:x.unitPrice,preorder:catalog.products.some(p=>p.id===x.id&&p.preorder===true)}));
   const bundles=(catalog.bundles||[]).filter(b=>Array.isArray(b.productIds)&&b.productIds.length===2&&b.productIds.every(id=>counts.has(id))&&Number.isInteger(b.discountAmount)&&b.discountAmount>0)
@@ -268,13 +271,13 @@ async function reserveAtScan(parsed,quote){
   const data={orderId:raw.o,brandId:user.uid,originalItems:compactItems(items),originalAmount:latest.amount,
    originalLines,remainingLines:originalLines,bundles,items:compactItems(items),amount:latest.amount,status:'reserved',
    discountMode:latest.discountMode,discountValue:latest.discountValue,discountMinSpend:latest.discountMinSpend,discountRegistered:latest.discountRegistered,
-   shippingFee:latest.shippingFee,shippingMode:latest.shippingMode,shippingThreshold:latest.shippingThreshold,shippingCharge:latest.shippingCharge,
+   shippingFee:latest.shippingFee,shippingMode:latest.shippingMode,shippingThreshold:latest.shippingThreshold,shippingCharge:latest.shippingCharge,shippingPrefecture:latest.shippingPrefecture,
    hasPreorder:latest.hasPreorder,hasCustomerData:!!customer,
    noveltyMode:latest.noveltyMode,noveltyName:latest.noveltyName,noveltyMinSpend:latest.noveltyMinSpend,noveltyProductId:latest.noveltyProductId,
    scanTime:serverTimestamp(),updatedAt:serverTimestamp()};
   tx.set(refs.sale,data);
   tx.set(refs.confirmation,{slug:brand.slug,brandId:user.uid,orderId:raw.o,status:'confirmed',confirmedAt:serverTimestamp(),
-    amount:latest.amount,modified:false,updatedAt:serverTimestamp()});
+    amount:latest.amount,modified:false,hasPreorder:latest.hasPreorder,updatedAt:serverTimestamp()});
   return {already:false,data};
  },{maxAttempts:5});
 }
@@ -288,7 +291,7 @@ async function loadQr(text){
   if(!snap.exists()||snap.data().brandId!==user.uid)throw Error('このブランドの商品公開が未完了です。');
   const quote=calculate(parsed,snap.data(),settingSnap.exists()&&settingSnap.data().brandId===user.uid?settingSnap.data():{});
   const result=await reserveAtScan(parsed,quote);
-  acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,bundles:result.data.bundles||[],discountMode:result.data.discountMode,discountValue:result.data.discountValue,discountMinSpend:result.data.discountMinSpend,discountRegistered:result.data.discountRegistered,shippingFee:result.data.shippingFee,shippingMode:result.data.shippingMode,shippingThreshold:result.data.shippingThreshold,shippingCharge:result.data.shippingCharge,hasPreorder:result.data.hasPreorder,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
+  acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,bundles:result.data.bundles||[],discountMode:result.data.discountMode,discountValue:result.data.discountValue,discountMinSpend:result.data.discountMinSpend,discountRegistered:result.data.discountRegistered,shippingFee:result.data.shippingFee,shippingMode:result.data.shippingMode,shippingThreshold:result.data.shippingThreshold,shippingCharge:result.data.shippingCharge,shippingPrefecture:result.data.shippingPrefecture,hasPreorder:result.data.hasPreorder,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
  }catch(err){console.error(err);say(err.message||'在庫確保に失敗しました。',true);candidate=null;}
  finally{working=false;document.querySelectorAll('.cancel-line').forEach(b=>b.disabled=false);if(stage==='scan'&&user){$('camera-start').disabled=false;$('manual-scan').disabled=false;}}
 }
@@ -350,11 +353,11 @@ async function cancelLine(key,all=false){
    });
    const amount=reprice(kept,sale.bundles||[],sale);
    const base=reprice(kept,sale.bundles||[],sale,true);
-   const shippingFee=kept.some(x=>x.preorder===true)&&sale.shippingMode==='threshold'&&base<(sale.shippingThreshold||0)?(sale.shippingCharge||0):0;
+   const shippingFee=kept.some(x=>x.preorder===true)&&['threshold','prefecture'].includes(sale.shippingMode)&&((sale.shippingThreshold||0)<=0||base<(sale.shippingThreshold||0))?(sale.shippingCharge||0):0;
    const nextStatus=kept.length?'reserved':'cancelled';
    tx.update(refs.stock,{quantities:next,variantQuantities:nextVariants,updatedAt:serverTimestamp()});
    tx.update(refs.sale,{items:compactItems(kept),remainingLines:kept,amount,shippingFee,status:nextStatus,updatedAt:serverTimestamp()});
-   tx.update(refs.confirmation,{amount,status:kept.length?'confirmed':'cancelled',modified:true,updatedAt:serverTimestamp()});
+   tx.update(refs.confirmation,{amount,status:kept.length?'confirmed':'cancelled',hasPreorder:kept.some(x=>x.preorder===true),modified:true,updatedAt:serverTimestamp()});
    return {lines:kept,amount,shippingFee,hasPreorder:kept.some(x=>x.preorder===true),status:nextStatus};
   },{maxAttempts:5});
   candidate={...candidate,...updated};refreshGift(candidate);

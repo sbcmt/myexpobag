@@ -80,7 +80,7 @@
     }else targets.forEach(load);
   }
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
-  const state = { category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
+  const state = { shippingPrefecture:'', category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
   let cancelOrderConfirmation=()=>{};
   // App updates are checked independently of the visible version (fixed at 1.0.1).
   const currentHashes = window.MEB_ASSET_HASHES || {};
@@ -150,11 +150,15 @@
   const giftTag=p=>cfg.novelty?.enabled&&cfg.novelty.mode==='product'&&cfg.novelty.productId===p.id?'<span class="novelty-tag">ノベルティ対象商品</span>':'';
   const giftCaution='ノベルティの数量には限りがあります。なくなり次第終了します';
   const preorderLines=()=>cartLines().filter(line=>line.product.preorder===true);
-  const deliveryFor=(base,items=cartLines())=>{
-    if(!items.some(x=>x.product?.preorder===true))return 0;
-    const shipping=cfg.shipping||{};
-    return shipping.mode==='threshold'&&base<shipping.threshold?Math.max(0,Math.round(shipping.charge||0)):0;
+  const prefOptions=()=>window.MEB_SHIPPING.prefectures.map(pref=>`<option value="${esc(pref)}" ${state.shippingPrefecture===pref?'selected':''}>${esc(pref)}</option>`).join('');
+  const shippingNeedsPref=()=>cfg.shipping?.mode==='prefecture'&&preorderLines().length>0;
+  const shippingSelector=(context='bag')=>{
+    if(cfg.shipping?.mode!=='prefecture')return '';
+    return `<div class="shipping-prefecture-picker" role="group" aria-label="配送先都道府県"><strong>予約商品があります。お住まいの都道府県を選んでください。</strong>
+      <label for="shipping-pref-${context}">配送先の都道府県</label><select id="shipping-pref-${context}" data-select-pref><option value="">選択してください</option>${prefOptions()}</select>
+      <p>${state.shippingPrefecture?`選択した都道府県：${esc(state.shippingPrefecture)}。予約商品の送料はMY BAGに表示されます。`:'送料を正しく計算するため、購入QRを発行する前に選択してください。'}</p></div>`;
   };
+  const deliveryFor=(base,items=cartLines())=>window.MEB_SHIPPING.calc(cfg.shipping,base,items.some(x=>x.product?.preorder===true),state.shippingPrefecture);
   const totalCalc = (registered=false) => {
     const listSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*normalPrice(line.product,line.color),0);
     const eventSubtotal = cartLines().reduce((sum,line)=>sum+line.qty*unitPrice(line.product,line.color),0);
@@ -186,7 +190,7 @@
     const appDiscountPercent=activeMode==='percent'?offer.value:0;
     const appDiscountAmount=activeMode==='percent'?Math.min(beforeAppDiscount,Math.round(beforeAppDiscount*offer.value/100)):
       activeMode==='amount'?Math.min(beforeAppDiscount,offer.value):0;
-    const shippingFee=deliveryFor(beforeAppDiscount);
+    const shippingFee=deliveryFor(beforeAppDiscount)??0;
     const total=beforeAppDiscount-appDiscountAmount+shippingFee;
     return {listSubtotal,eventSubtotal,eventSaving:listSubtotal-eventSubtotal,bundleSaving:Math.min(eventSubtotal,saving),
       bundles:details,beforeAppDiscount,appDiscountMode:activeMode,eligibleAppDiscountPercent:offer.mode==='percent'?offer.value:0,
@@ -281,6 +285,7 @@
       <h1 class="detail-name">${esc(p.name)}${giftTag(p)}</h1>
       <div class="detail-price">${unitPrice(p,color)<normalPrice(p,color)?`<span class="detail-original">${yen(normalPrice(p,color))}</span>`:''}${yen(unitPrice(p,color))} <span style="font-size:11px;font-weight:500">税込</span></div>
       ${soldOut(p)||variants.length&&color&&variantStock(p,color)===0?'<div class="price-extra" style="color:#c02d30;font-weight:800">SOLD OUT</div>':p.preorder?`<div class="price-extra">受注予約・${esc(releaseText(p))}</div>`:unitPrice(p,color)<normalPrice(p,color)?'<div class="price-extra">展示会限定価格</div>':''}
+      ${p.preorder?shippingSelector('detail')+(cfg.shipping?.mode==='prefecture'&&state.shippingPrefecture?`<p class="shipping-detail-fee">${esc(state.shippingPrefecture)}への送料：${(()=>{const base=preorderLines().length?totalCalc(false).beforeAppDiscount:totalCalc(false).beforeAppDiscount+unitPrice(p,color);const amt=window.MEB_SHIPPING.calc(cfg.shipping,base,true,state.shippingPrefecture);return amt===0?'送料当社負担':yen(amt);})()} <span>（現時点の目安。MY BAGで確定）</span></p>`:''):''}
       ${variants.length?`<section class="variants"><p class="variant-label">バリエーションを選択 <span>（必須）</span></p><div class="variant-options">${variants.map(v=>`<button type="button" class="variant-chip ${v.code===color?'selected':''}" data-product="${esc(p.id)}" data-variant="${esc(v.code)}" aria-pressed="${v.code===color}" ${v.stock===0?'disabled':''}>${esc(v.name)}${v.stock===0?'（SOLD OUT）':''}</button>`).join('')}</div></section>`:''}
       <button class="primary-btn" data-add="${esc(p.id)}" data-go-bag="true" ${soldOut(p)||variants.length&&color&&variantStock(p,color)===0?'disabled':''}>${soldOut(p)||variants.length&&color&&variantStock(p,color)===0?'SOLD OUT':'＋　MY BAGに追加する'}</button>
       ${suggestions?`<section class="recommendations" aria-label="おすすめの組み合わせ"><div class="recommend-section-header"><span class="eyebrow">BETTER TOGETHER</span><h2>この商品と一緒にいかがですか？</h2></div><div class="recommend-list">${suggestions}</div></section>`:''}
@@ -295,13 +300,13 @@
       <button class="qty-btn" data-qty="${esc(line.key)}" data-step="1" aria-label="${esc(line.product.name)}を1つ増やす">+</button></div>
       ${variantsOf(line.product).length&&!line.color?`<button class="pick-color-link" data-open-product="${esc(line.id)}">バリエーションを選ぶ →</button>`:''}</div></div>`).join('');
     $('#view').innerHTML=`<div class="page-body"><button class="back-button" data-nav="#home">${ICONS.left} 商品一覧に戻る</button><h1 class="page-title">MY BAG<span style="color:var(--main)">.</span></h1><p class="page-subtitle">商品とお支払い予定金額をご確認ください。</p>
-      ${itemCount()?`${checkoutStockError()?`<p class="color-warning" role="alert">${esc(checkoutStockError())}</p>`:''}${itemRows}<section class="order-box"><h2 class="order-heading">ご注文内容</h2>
+      ${itemCount()?`${checkoutStockError()?`<p class="color-warning" role="alert">${esc(checkoutStockError())}</p>`:''}${itemRows}${preorderLines().length?shippingSelector('bag'):''}<section class="order-box"><h2 class="order-heading">ご注文内容</h2>
       <div class="order-row"><span class="order-label">通常価格 合計</span><strong>${yen(totals.listSubtotal)}</strong></div>
       ${totals.eventSaving>0?`<div class="order-row"><span class="order-label">展示会限定価格による割引</span><span class="order-positive">−${yen(totals.eventSaving)}</span></div>`:''}
       ${totals.bundles.map(b=>`<div class="order-row"><span class="order-label">セット割引：${esc(b.name)} × ${b.count}</span><span class="order-positive">−${yen(b.saving)}</span></div>`).join('')}
       <div class="order-total"><span>商品合計（税込）</span><strong>${yen(totals.beforeAppDiscount)}</strong></div>
       ${discountOffer().mode!=='none'?(discountEligible(totals.beforeAppDiscount)?`<div class="register-offer">お名前とメール登録で <strong>さらに${discountText()}</strong>${discountCondition()}<br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:`<p class="offer-unmet" role="status">アプリ割引は税込${yen(discountOffer().minSpend)}以上で適用されます（現在は対象外です）。</p>`):''}
-      ${preorderLines().length?`<div class="order-row"><span>予約商品・配送</span><strong>${totals.shippingFee>0?yen(totals.shippingFee)+'（送料）':'送料当社負担'}</strong></div>`:''}
+      ${preorderLines().length?`<div class="order-row"><span>予約商品・配送</span><strong>${shippingNeedsPref()&&!state.shippingPrefecture?'都道府県を選択してください':totals.shippingFee>0?yen(totals.shippingFee)+'（送料）':'送料当社負担'}</strong></div>`:''}
       <div class="tiny-text" style="text-align:right;margin-top:9px">お支払いは会場で</div></section>
       ${cfg.novelty?.enabled&&cfg.novelty.mode==='all'?`<div class="gift-eligible"><strong>✦ ${esc(cfg.novelty.name)}</strong><p>購入者全員が対象です。${esc(giftCaution)}</p></div>`:''}
       <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length||checkoutStockError()?'disabled':''}>購入QRを開く　→</button><p class="helptext">予約商品を含む場合は発送先情報が必要です。通常商品だけの場合、登録をスキップできます。</p></div>`:
@@ -315,8 +320,28 @@
     t:'MEB2',o:order.id,b:cfg.brand.id,e:cfg.event.id,
     i:order.items.map(x=>[x.id,x.color,x.qty]),r:order.registered?1:0,
     c:'JPY',s:order.beforeAppDiscount,p:order.appDiscountPercent,
-    d:order.appDiscountAmount,h:order.shippingFee||0,a:order.total
+    d:order.appDiscountAmount,h:order.shippingFee||0,a:order.total,f:order.hasPreorder&&cfg.shipping?.mode==='prefecture'?order.prefecture:''
   });
+  const renderDeliveryForm=(order)=>{
+    if(order.deliverySaved)return `<section class="delivery-success" role="status"><strong>配送情報を受け付けました。</strong><p>予約商品の発送案内は、ご登録いただいたメールアドレスへご連絡します。</p></section>`;
+    const chosen=order.prefecture||'';
+    const opts=window.MEB_SHIPPING.prefectures.map(x=>`<option value="${esc(x)}" ${chosen===x?'selected':''}>${esc(x)}</option>`).join('');
+    const canChoose=cfg.shipping?.mode!=='prefecture'||!chosen;
+    return `<section class="delivery-after-scan"><h2>予約受注ありがとうございます。</h2>
+      <p class="delivery-headline">こちらに配送情報をご入力ください。</p>
+      <p class="tiny-text">購入QRの読み取りが完了しました。配送先の登録が終わるまで、この画面を閉じないでください。発送連絡のためメールアドレスも必要です。</p>
+      <form id="delivery-form" class="delivery-form">
+        <label class="form-label" for="delivery-name">お届け先のお名前（必須）</label><input class="form-input" id="delivery-name" name="name" autocomplete="name" maxlength="80" required value="${esc(order.name||'')}">
+        <label class="form-label" for="delivery-email">発送連絡用メールアドレス（必須）</label><input class="form-input" id="delivery-email" name="email" type="email" autocomplete="email" maxlength="200" required value="${esc(order.email||'')}">
+        <label class="form-label" for="delivery-phone">電話番号（数字10～11桁・必須）</label><input class="form-input" id="delivery-phone" name="phone" inputmode="tel" autocomplete="tel" pattern="[0-9]{10,11}" maxlength="11" placeholder="09012345678" required>
+        <label class="form-label" for="delivery-postal">郵便番号（数字7桁・必須）</label><div class="postcode-row"><input class="form-input" id="delivery-postal" name="postal" inputmode="numeric" autocomplete="postal-code" pattern="[0-9]{7}" maxlength="7" placeholder="7390000" required><button type="button" class="outline-btn" data-lookup-zip>郵便番号から検索</button></div>
+        <label class="form-label" for="delivery-prefecture">都道府県（必須）</label><select class="form-input" id="delivery-prefecture" name="prefecture" required ${canChoose?'':'disabled'}><option value="">選択してください</option>${opts}</select>
+        <label class="form-label" for="delivery-address">市区町村・番地・建物名（必須）</label><input class="form-input" id="delivery-address" name="localAddress" autocomplete="address-line1" maxlength="190" required placeholder="例：東広島市西条町〇〇 1-2-3">
+        <p class="tiny-text">${chosen?'送料計算済みの配送先：'+esc(chosen)+'。ほかの都道府県には変更できません。':'住所検索結果に合わせて都道府県を選んでください。'} 郵便番号検索では郵便番号を外部サービスに送信します。</p>
+        <p class="tiny-text">郵便番号から住所の候補を取得できますが、番地・建物名は必ず確認してください。</p>
+        <div id="delivery-error" role="alert" class="form-error"></div><button class="primary-btn" type="submit">配送情報を登録する</button>
+      </form></section>`;
+  };
   const renderQr=()=>{
     // An issued QR belongs to a specific order. The shared inventory count can
     // drop to zero when staff reserve its last item, but that does NOT mean the
@@ -327,6 +352,7 @@
       $('#view').innerHTML=`<div class="page-body qr-page" role="status" aria-live="polite" style="padding-top:32px;text-align:center"><h1 class="page-title">ご注文は取り消されました</h1><p class="page-subtitle">スタッフが確保済みの商品をキャンセルし、在庫を戻しました。お支払い予定額はありません。</p><button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;return;
     }
     if(order.confirmed){
+      const deliveryForm=order.hasPreorder?renderDeliveryForm(order):'';
       $('#view').innerHTML=`<div class="page-body qr-page" role="status" aria-live="polite" style="padding-top:32px;text-align:center">
         <div style="font-size:60px;color:#16805a;line-height:1.2" aria-hidden="true">✓</div>
         <h1 class="page-title" style="margin-top:18px">商品を確認しました。</h1>
@@ -334,7 +360,8 @@
         <section class="qr-card" style="margin-top:22px"><div class="qr-price-label">確認済み注文番号</div>
           <div class="qr-order-id">${esc(order.id)}</div>${order.adjusted?`<p style="color:#9d3434;font-weight:700">商品取消を反映した金額です</p>`:""}<div class="qr-price-label">お支払い予定額</div>
           <div class="qr-price-base">${yen(order.total)}</div></section>
-        <button class="outline-btn" data-nav="#home" style="margin-top:24px">商品一覧に戻る</button>
+        ${deliveryForm}
+        ${!order.hasPreorder||order.deliverySaved?'<button class="outline-btn" data-nav="#home" style="margin-top:24px">商品一覧に戻る</button>':''}
       </div>`;
       return;
     }
@@ -433,25 +460,20 @@
     completeBundle();
   }
   function showCheckout(){
-    if(!itemCount()||missingColors().length)return;const stockError=checkoutStockError();if(stockError){toast(stockError);return;}
+    if(!itemCount()||missingColors().length)return;if(shippingNeedsPref()&&!state.shippingPrefecture){toast('予約商品の配送先都道府県を選んでください。');return;}const stockError=checkoutStockError();if(stockError){toast(stockError);return;}
     state.modalOpen=true;state.checkoutMode='register';
     const offer=totalCalc(true),original=totalCalc(false);
     $('#modal-root').innerHTML=`<div class="modal-backdrop" id="checkout-overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
       <div class="modal-heading"><h2 id="checkout-title" class="modal-title">購入QRを開く</h2><button type="button" class="icon-button" data-close-modal aria-label="閉じる">${ICONS.close}</button></div>
       ${discountOffer().mode!=='none'?(discountEligible(original.beforeAppDiscount)?`<div class="checkout-offer">お名前とメールを登録すると <strong>${discountText()}</strong>${discountCondition()}<br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:`<p class="offer-unmet" role="status">アプリ割引は税込${yen(discountOffer().minSpend)}以上で適用されます（現在は対象外です）。</p>`):''}
       <p class="modal-desc">登録するか、入力せずに購入QRを表示するか選べます。</p>
-      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false" ${preorderLines().length?'disabled':''}>入力をスキップ → QR表示</button></div>
+      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button></div>
       <form id="checkout-form"><div id="registration-fields">
         <label class="form-label" for="buyer-name">お名前 <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-name" name="name" autocomplete="name" required maxlength="80" placeholder="山田 太郎"/>
         <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>
         <label class="form-check"><input type="checkbox" name="news"/><span>新商品やイベントのお知らせをメールで受け取る（任意）</span></label>
         <p class="tiny-text">お名前・メールは購入内容の照合に使用します。お知らせメールの同意は別です（初期OFF）。</p></div>
-        ${preorderLines().length?`<section class="meb-shipping"><h3>予約商品の発送先（必須）</h3><p class="tiny-text">予約商品は後日発送します。以下の情報は発送だけに使用し、購入QRには含めません。</p>
-      <label class="form-label" for="ship-postal">郵便番号（ハイフンなし7桁）</label><input class="form-input" id="ship-postal" name="shipPostal" inputmode="numeric" autocomplete="postal-code" pattern="[0-9]{7}" maxlength="7" required placeholder="7390000">
-      <label class="form-label" for="ship-address">発送先住所（都道府県・市区町村・番地・建物名）</label><input class="form-input" id="ship-address" name="shipAddress" autocomplete="street-address" required maxlength="200">
-      <label class="form-label" for="ship-name">お届け先氏名</label><input class="form-input" id="ship-name" name="shipName" autocomplete="name" required maxlength="80">
-      <label class="form-label" for="ship-phone">電話番号（数字のみ10～11桁）</label><input class="form-input" id="ship-phone" name="shipPhone" type="tel" inputmode="tel" pattern="[0-9]{10,11}" maxlength="11" required placeholder="09012345678">
-      <p class="tiny-text">${cfg.shipping?.mode==='threshold'?`税込${yen(cfg.shipping.threshold)}以上なら送料当社負担。未達時の送料は${yen(cfg.shipping.charge)}です。`:'送料当社負担です。'}</p></section>`:''}
+        ${preorderLines().length?`<p class="meb-delivery-prompt">予約商品の配送先（氏名・住所・電話番号・発送通知メール）は、スタッフが購入QRを読み取ったあとに入力します。QR画面を閉じずにお待ちください。</p>`:''}
         <div id="skip-description" class="skip-description" hidden>登録なしでQRを発行します。${discountOffer().mode!=='none'?'アプリ購入割引は適用されません。':'商品・セット割引はそのまま適用されます。'}</div>
         <div class="checkout-price-preview" id="checkout-price-preview">${discountOffer().mode!=='none'&&discountEligible(original.beforeAppDiscount)?`<span>登録後のお支払い金額</span><strong>${yen(offer.total)}</strong>`:`<span>お支払い予定額</span><strong>${yen(offer.total)}</strong>`}</div>
         <p class="tiny-text">登録した情報は出展ブランドの管理者だけが閲覧できる領域に保存します。発送情報は発送目的に限り使用し、必要期間終了後に削除してください。<strong>QRには個人情報を含めません。</strong></p>
@@ -459,7 +481,7 @@
     $('#buyer-name').focus();
   }
   function setCheckoutMode(mode){
-    if(!state.modalOpen||!['register','skip'].includes(mode)||(mode==='skip'&&preorderLines().length))return;
+    if(!state.modalOpen||!['register','skip'].includes(mode))return;
     state.checkoutMode=mode;
     const register=mode==='register';
     $('#registration-fields').hidden=!register;$('#skip-description').hidden=register;
@@ -472,11 +494,9 @@
   function closeModal(){state.modalOpen=false;$('#modal-root').innerHTML='';}
   async function submitCheckout(form){
     const registered=state.checkoutMode==='register';
-    if((registered||preorderLines().length)&&!form.reportValidity())return;if(checkoutStockError()){toast(checkoutStockError());return;}
+    if(registered&&!form.reportValidity())return;if(checkoutStockError()){toast(checkoutStockError());return;}
     const fd=new FormData(form),name=registered?String(fd.get('name')||'').trim():'',email=registered?String(fd.get('email')||'').trim():'';
     if(registered&&(!name||!email)){$('#checkout-error').textContent='お名前とメールアドレスを入力してください。';return;}
-    const shipping=preorderLines().length?{postal:String(fd.get('shipPostal')||'').trim(),address:String(fd.get('shipAddress')||'').trim(),name:String(fd.get('shipName')||'').trim(),phone:String(fd.get('shipPhone')||'').trim()}:{postal:'',address:'',name:'',phone:''};
-    if(preorderLines().length&&(!registered||!/^\d{7}$/.test(shipping.postal)||!/^\d{10,11}$/.test(shipping.phone)||!shipping.address||!shipping.name)){$('#checkout-error').textContent='予約商品には正しい発送先情報が必須です。';return;}
     if(form.dataset.sending==='1')return;form.dataset.sending='1';const submit=form.querySelector('[type=submit]');submit.disabled=true;$('#checkout-error').textContent='登録内容を安全に保存しています…';
     if(!window.crypto?.getRandomValues){$('#checkout-error').textContent='安全な注文番号を作成できません。HTTPSで開いてください。';delete form.dataset.sending;submit.disabled=false;return;}
     const bytes=new Uint8Array(10);crypto.getRandomValues(bytes);
@@ -485,13 +505,13 @@
     const items=cartLines().map(line=>({id:line.id,color:line.color?line.id+'_'+line.color:'',qty:line.qty}));
     try{
       // Ordinary skipped orders have no personal-data record. Reservations and registered buyers do.
-      if(registered){
+      if(registered||preorderLines().length){
         if(typeof window.MEB_SAVE_PRIVATE_CHECKOUT!=='function')throw Error('顧客データ保存機能を読み込めません。最新版を表示してください。');
-        await window.MEB_SAVE_PRIVATE_CHECKOUT({slug:cfg.brand.id,brandId:cfg.ownerBrandId||'',orderId:id,registered:true,buyerName:name,buyerEmail:email,marketingConsent:fd.get('news')==='on',hasPreorder:preorderLines().length>0,shipping});
+        await window.MEB_SAVE_PRIVATE_CHECKOUT({slug:cfg.brand.id,brandId:cfg.ownerBrandId||'',orderId:id,registered,buyerName:name,buyerEmail:email,marketingConsent:registered&&fd.get('news')==='on',hasPreorder:preorderLines().length>0,prefecture:state.shippingPrefecture});
       }
     }catch(error){console.error('checkout save',error);$('#checkout-error').textContent='購入情報を安全に保存できませんでした。'+(error.code==='auth/operation-not-allowed'?'Firebase Authenticationで「匿名」を有効にしてください。':'通信環境・認証設定をご確認ください。')+' QRはまだ発行していません。';delete form.dataset.sending;submit.disabled=false;return;}
     delete form.dataset.sending;
-    state.order={id,registered,name,email,newsletterConsent:registered&&fd.get('news')==='on',createdAt:new Date().toISOString(),
+    state.order={id,registered,name,email,prefecture:state.shippingPrefecture,deliverySaved:false,newsletterConsent:registered&&fd.get('news')==='on',createdAt:new Date().toISOString(),
       items,count:itemCount(),listSubtotal:totals.listSubtotal,eventSubtotal:totals.eventSubtotal,bundleSaving:totals.bundleSaving,
       beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,appDiscountMode:totals.appDiscountMode,
       appDiscountAmount:totals.appDiscountAmount,shippingFee:totals.shippingFee,hasPreorder:preorderLines().length>0,total:totals.total,
@@ -516,6 +536,7 @@
           state.order.confirmed=true;
           state.order.cancelled=data.status==='cancelled';
           state.order.adjusted=data.modified===true;
+          if(typeof data.hasPreorder==='boolean')state.order.hasPreorder=data.hasPreorder;
           if(Number.isInteger(data.amount)&&data.amount>=0)state.order.total=data.amount;
           if(location.hash==='#qr')render();
         },()=>{
@@ -525,7 +546,14 @@
     }
     closeModal();nav('#qr');
   }
+  document.addEventListener('change',event=>{
+    if(event.target.matches('[data-select-pref]')){
+      state.shippingPrefecture=window.MEB_SHIPPING.validPref(event.target.value)?event.target.value:'';
+      render();
+    }
+  });
   document.addEventListener('click', event=>{
+    if(event.target.closest('[data-lookup-zip]')){void lookupPostal();return;}
     if(event.target.id==='checkout-overlay'){closeModal();return;}
     const clickable=event.target.closest('[data-nav],[data-open-product],[data-add],[data-qty],[data-remove],[data-add-bundle],[data-category],[data-checkout],[data-close-modal],[data-theme],[data-variant],[data-checkout-mode]');
     if(!clickable)return;
@@ -547,7 +575,45 @@
       if(mode==='skip')submitCheckout($('#checkout-form'));
     }
   });
-  document.addEventListener('submit',event=>{if(event.target.id!=='checkout-form')return;event.preventDefault();void submitCheckout(event.target);});
+  async function lookupPostal(){
+    const input=$('#delivery-postal'),postcode=String(input?.value||'').replace(/[^0-9]/g,'');
+    const el=$('#delivery-error');if(!el)return;
+    if(!/^[0-9]{7}$/.test(postcode)){el.textContent='郵便番号7桁を入力してください。';return;}
+    el.textContent='郵便番号を検索しています…';
+    try{
+      const response=await fetch('https://zipcloud.ibsnet.co.jp/api/search?zipcode='+encodeURIComponent(postcode),{cache:'no-store'});
+      if(!response.ok)throw Error('郵便番号検索サービスに接続できません。');
+      const json=await response.json();const results=json.results;
+      if(!Array.isArray(results)||!results.length)throw Error('住所候補が見つかりません。');
+      const first=results[0];const pref=first.address1||'';
+      if(!window.MEB_SHIPPING.validPref(pref))throw Error('都道府県を確認できません。');
+      if(state.order?.prefecture&&cfg.shipping?.mode==='prefecture'&&state.order.prefecture!==pref){throw Error('この郵便番号は送料計算時に選んだ'+state.order.prefecture+'と異なります。スタッフにご相談ください。');}
+      $('#delivery-prefecture').value=pref;
+      $('#delivery-address').value=String(first.address2||'')+String(first.address3||'');
+      el.textContent='住所候補を入力しました。番地・建物名を追記してください。';
+    }catch(error){el.textContent=error.message||'住所検索ができません。手入力してください。';}
+  }
+  async function submitDelivery(form){
+    if(!state.order?.confirmed||!state.order.hasPreorder||state.order.deliverySaved)return;
+    if(!form.reportValidity())return;
+    const el=$('#delivery-error'),fd=new FormData(form);
+    const prefecture=state.order.prefecture&&cfg.shipping?.mode==='prefecture'?state.order.prefecture:String(fd.get('prefecture')||'');
+    const local=String(fd.get('localAddress')||'').trim();
+    if(!window.MEB_SHIPPING.validPref(prefecture)||!local||window.MEB_SHIPPING.prefectures.some(x=>x!==prefecture&&local.startsWith(x))){el.textContent='配送先の都道府県と住所を確認してください。';return;}
+    const shipping={prefecture,postal:String(fd.get('postal')||'').replace(/[^0-9]/g,''),address:prefecture+local,
+      name:String(fd.get('name')||'').trim(),phone:String(fd.get('phone')||'').replace(/[^0-9]/g,''),email:String(fd.get('email')||'').trim()};
+    const submit=form.querySelector('[type="submit"]');submit.disabled=true;
+    el.textContent='配送情報を安全に登録しています…';
+    try{
+      if(typeof window.MEB_SAVE_DELIVERY!=='function')throw Error('配送情報保存機能を読み込めません。最新版を表示してください。');
+      await window.MEB_SAVE_DELIVERY({slug:cfg.brand.id,orderId:state.order.id,shipping});
+      state.order.deliverySaved=true;render();
+    }catch(error){console.error('delivery save',error);el.textContent='保存に失敗しました。'+(error.message||'通信環境をご確認ください。');submit.disabled=false;}
+  }
+  document.addEventListener('submit',event=>{
+    if(event.target.id==='checkout-form'){event.preventDefault();void submitCheckout(event.target);}
+    else if(event.target.id==='delivery-form'){event.preventDefault();void submitDelivery(event.target);}
+  });
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.modalOpen)closeModal();});
   window.addEventListener('hashchange',()=>{render();window.scrollTo({top:0,behavior:'instant'});});
   window.MEB_CATALOG_REFRESH=()=>{
