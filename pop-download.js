@@ -5,7 +5,8 @@ const $=id=>document.getElementById(id);
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const pageSizes={A1:[594,841],A2:[420,594],A3:[297,420],A4:[210,297],A5:[148,210]};
 const state={db:null,user:null,brand:null,slug:'',brandName:'',customerUrl:'',template:null,logo:null,qrCanvas:null};
-const templatePath='./assets/pop-template-no-qr.png?v=20261016-v107';
+const templatePath='./assets/pop-template-no-qr.png?v=20261016-print-v108';
+const printTemplatePath='./assets/pop-template-print-a1.jpg?v=20261016-print-v108';
 const logoPath='./assets/pop-qr-logo.png?v=20261016-inkcenter-v105';
 function setStatus(msg,error=false,target='status'){const el=$(target); if(el){el.textContent=msg; el.className='status '+(error?'error':'good');}}
 function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('画像を読み込めません: '+src));img.src=src;});}
@@ -29,7 +30,7 @@ function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+
 // Place the visible ink, not the outer QR bitmap, at the center of the
 // central QR area after removing the old rounded frame. No extra white box.
 const POSTER_BASE_W=1054,POSTER_BASE_H=1492;
-const QR_TARGET={centerX:511.5,centerY:806}; // centered in the former QR area; no white frame exists
+const QR_TARGET={centerX:511.5,centerY:822}; // v108: exactly 16 native pixels lower (half-character) than old centerY=806
 const QR_INK_SIZE=280;
 let cachedInkBounds=null;
 function findQrInkBounds(qrCanvas){
@@ -89,18 +90,47 @@ function selectedFormats(){return [...document.querySelectorAll('.qr-format:chec
 async function ensureAssets(){if(!state.template)state.template=await loadImage(templatePath); if(!state.logo)state.logo=await loadImage(logoPath); if(!state.qrCanvas){const base=renderQrCanvas(state.customerUrl,1080); state.qrCanvas=addLogoToQr(base,state.logo);} return true;}
 async function drawPreview(){try{await ensureAssets(); composePoster($('preview-canvas'),state.template,state.qrCanvas); setStatus('プレビューを更新しました。',false,'preview-status');}catch(err){console.error(err);setStatus(err.message||'プレビューの描画に失敗しました。',true,'preview-status');}}
 async function downloadQrFiles(){const formats=selectedFormats(); if(!formats.length){setStatus('QRの保存形式を1つ以上選択してください。',true);return;} try{setStatus('QRを生成しています…'); await ensureAssets(); const zip=(formats.length>1)?new window.JSZip():null; for(const fmt of formats){ if(fmt==='svg'){ const svg=buildQrSvg(state.customerUrl); const blob=new Blob([svg],{type:'image/svg+xml'}); if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.svg`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.svg`); } else { const mime=fmt==='jpg'?'image/jpeg':'image/png'; const blob=await canvasBlob(state.qrCanvas,mime,fmt==='jpg'?0.96:undefined); const ext=fmt==='jpg'?'jpg':'png'; if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`); } } if(zip){const blob=await zip.generateAsync({type:'blob'}); downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.zip`);} setStatus('QRを保存しました。'); }catch(err){console.error(err);setStatus(err.message||'QRの保存に失敗しました。',true);} }
+// Fetch the press-size 7016x9933 300dpi JPEG once on demand, rather than
+// rasterizing the original ~1k pixel source every time the user prints.
+let printJpegBytesPromise=null;
+function fetchPrintJpeg(){
+ if(!printJpegBytesPromise)printJpegBytesPromise=fetch(printTemplatePath)
+   .then(async r=>{if(!r.ok)throw Error('印刷用の高解像度原版を読み込めません（HTTP '+r.status+'）。assets/pop-template-print-a1.jpg をアップロードしてください。'); return new Uint8Array(await r.arrayBuffer());})
+   .catch(err=>{printJpegBytesPromise=null;throw err;});
+ return printJpegBytesPromise;
+}
+// Draw the true customer page URL as PDF vector paths. The raster preview is
+// for layout only. The printed QR modules stay crisp at any paper size.
+function drawVectorQrOnPdf(pdf,pageW,pageH){
+ const raw=makeQrCore(state.customerUrl), count=raw.getModuleCount(),quiet=4;
+ const totalModules=count+quiet*2;
+ const cell=Math.floor(1080/totalModules);
+ const origin=Math.floor((1080-cell*totalModules)/2)+quiet*cell;
+ const pos=posterQrGeometry(pageW,pageH,state.qrCanvas);
+ const fx=pos.w/1080,fy=pos.h/1080;
+ // White is limited to the QR image itself: no extra frame or shadow.
+ pdf.setFillColor(255,255,255);
+ pdf.rect(pos.x,pos.y,pos.w,pos.h,'F');
+ pdf.setFillColor(17,17,17);
+ for(let row=0;row<count;row++)for(let col=0;col<count;col++){
+  if(raw.isDark(row,col)) pdf.rect(pos.x+(origin+col*cell)*fx,pos.y+(origin+row*cell)*fy,cell*fx+.002,cell*fy+.002,'F');
+ }
+ const s=1080*0.18;const x=(1080-s)/2,y=(1080-s)/2,r=s*.18;
+ pdf.setFillColor(255,255,255);
+ pdf.roundedRect(pos.x+x*fx,pos.y+y*fy,s*fx,s*fy,r*fx,r*fy,'F');
+ const logoInner=.86,logoPad=(1-logoInner)/2;
+ pdf.addImage(state.logo,'PNG',pos.x+(x+s*logoPad)*fx,pos.y+(y+s*logoPad)*fy,s*logoInner*fx,s*logoInner*fy,undefined,'FAST');
+}
 async function makePdfForSize(size){
  await ensureAssets();
- const [w,h]=pageSizes[size],dpi=300;
- const canvas=document.createElement('canvas');canvas.width=Math.round(w/25.4*dpi);canvas.height=Math.round(h/25.4*dpi);
- try{
-  composePoster(canvas,state.template,state.qrCanvas);
-  const posterBlob=await canvasBlob(canvas,'image/jpeg',0.91);
-  if(!posterBlob)throw Error('印刷用画像を作成できません。端末のメモリ容量をご確認ください。');
-  const posterUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(posterBlob);});
-  const {jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'portrait',unit:'mm',format:[w,h],compress:true});
-  doc.addImage(posterUrl,'JPEG',0,0,w,h,undefined,'FAST');return doc.output('blob');
- }finally{canvas.width=0;canvas.height=0;}
+ const [w,h]=pageSizes[size];
+ const {jsPDF}=window.jspdf;
+ const doc=new jsPDF({orientation:'portrait',unit:'mm',format:[w,h],compress:true});
+ const highRes=await fetchPrintJpeg();
+ // The embedded image is already A1 300dpi; addImage reuses native JPEG bytes.
+ doc.addImage(highRes,'JPEG',0,0,w,h,undefined,'FAST');
+ drawVectorQrOnPdf(doc,w,h);
+ return doc.output('blob');
 }
 async function downloadPopFiles(){const sizes=selectedSizes(); if(!sizes.length){setStatus('POPサイズを1つ以上選択してください。',true);return;} try{setStatus('POP PDFを生成しています…選択数が多い場合は少し時間がかかります。'); await ensureAssets(); const zip=sizes.length>1?new window.JSZip():null; for(const size of sizes){const blob=await makePdfForSize(size); const name=`MY_EXPO_BAG_${state.slug}_POP_${size}.pdf`; if(zip)zip.file(name,blob); else downloadBlob(blob,name);} if(zip){const blob=await zip.generateAsync({type:'blob'}); downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_POP_bundle.zip`);} setStatus('POPを保存しました。'); }catch(err){console.error(err);setStatus(err.message||'POPの生成に失敗しました。',true);} }
 function bindUi(){ $('refresh-preview').addEventListener('click',()=>drawPreview()); $('download-qr').addEventListener('click',()=>downloadQrFiles()); $('download-pop').addEventListener('click',()=>downloadPopFiles()); $('copy-url').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(state.customerUrl); setStatus('URLをコピーしました。');}catch{setStatus('URLのコピーに失敗しました。',true);}}); $('size-all').addEventListener('change',e=>{document.querySelectorAll('.size-check').forEach(el=>el.checked=e.target.checked);}); document.querySelectorAll('.size-check').forEach(el=>el.addEventListener('change',()=>{const all=[...document.querySelectorAll('.size-check')]; const checked=all.filter(x=>x.checked).length; $('size-all').checked=checked===all.length; $('size-all').indeterminate=checked>0&&checked<all.length;}));}
