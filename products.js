@@ -1,7 +1,7 @@
 /** MY EXPO BAG v1.0.1 — brand-owned product management and public catalog publishing. */
 import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {getFirestore,collection,doc,getDoc,getDocs,writeBatch,runTransaction,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import {getFirestore,collection,doc,getDoc,getDocs,getDocsFromServer,getDocFromServer,writeBatch,runTransaction,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 const $=id=>document.getElementById(id);
 const firebase=window.MEB_FIREBASE_CONFIG||{};
 const loginUrl=new URL('./login.html',location.href).href;
@@ -366,7 +366,11 @@ async function saveProduct(event){
   const batch=writeBatch(db);batch.set(prodRef(p.id),toFirestore(p,products.get(p.id)));
   if(pendingImage)batch.set(imageRef(p.id),{productId:p.id,imageData:pendingImage,updatedAt:serverTimestamp()});
   if(nextCategories.length!==categories.length)batch.set(catRef(),{categories:nextCategories,updatedAt:serverTimestamp()});
-  await batch.commit();const imageWasSaved=!!pendingImage;if(imageWasSaved)imageKnown.add(p.id);products.set(p.id,{...products.get(p.id),...p});categories=nextCategories;render();clearForm();status('「'+p.name+'」を'+(imageWasSaved?'画像とともに':'')+'保存しました。');
+  await batch.commit();const imageWasSaved=!!pendingImage;if(imageWasSaved)imageKnown.add(p.id);products.set(p.id,{...products.get(p.id),...p});categories=nextCategories;render();clearForm();status('「'+p.name+'」を'+(imageWasSaved?'画像とともに':'')+'保存しました。公開処理を続行します…');
+  // Customer-facing catalog is a separate snapshot: saving only drafts used to leave visitors seeing the old product list.
+  const published=await publishCatalog({automatic:true,allowBusy:true});
+  if(published)status('「'+p.name+'」を保存し、お客様ページへの公開も確認しました。');
+  else status('「'+p.name+'」の商品登録は成功しましたが、お客様ページの公開に失敗しました。上の「お客様ページに反映」のエラーを確認し、再実行してください。',true);
  }catch(err){console.error(err);status('商品を保存できませんでした（'+(err.code||'保存失敗')+'）：'+(err.message||'認証・Firestoreルール・通信環境をご確認ください。')+'。画像が原因と思われる場合は画像を外して再試行してください。',true);}finally{setBusy(false);}
 }
 async function addCategory(event){
@@ -522,15 +526,15 @@ async function importProducts(){
 }
 // Publish an explicit, public-safe snapshot. Private drafts and customer info
 // are NEVER copied. Images are stored in separate read-on-demand documents.
-async function publishCatalog(){
- if(busy||!user||!brand)return;
+async function publishCatalog({automatic=false,allowBusy=false}={}){
+ if((busy&&!allowBusy)||!user||!brand)return false;
  const button=$('publish-catalog'),message=$('publish-status');
- if(!confirm('表示対象の商品をお客様ページに反映しますか？ 非表示の商品は公開しません。'))return;
+ if(!automatic&&!confirm('表示対象の商品をお客様ページに反映しますか？ 非表示の商品は公開しません。'))return false;
  setBusy(true);message.hidden=false;message.className='status';
  try{
   // Read current server data, not a potentially stale form or previous page view.
   const [drafts,catSnapshot,oldSnapshot]=await Promise.all([
-   getDocs(coll()),getDoc(catRef()),getDoc(doc(db,'publishedCatalogs',brand.slug))
+   getDocsFromServer(coll()),getDocFromServer(catRef()),getDocFromServer(doc(db,'publishedCatalogs',brand.slug))
   ]);
   const source=drafts.docs.map(x=>x.data());
   for(const p of source.filter(x=>x.active!==false && ((p.variants||[]).length?(p.variants||[]).some(v=>typeof v.preorder==='boolean'?v.preorder:p.preorder===true):p.preorder===true)))if(!Number.isInteger(p.releaseMonth)||p.releaseMonth<1||p.releaseMonth>12||!['上旬','中旬','下旬'].includes(p.releasePeriod))throw Error('予約商品「'+p.name+'」（'+p.id+'）に発売予定月・時期がありません。商品を編集して保存してください。');
@@ -560,7 +564,7 @@ async function publishCatalog(){
   }
   const uploaded=[];
   for(const p of visible){
-   const imageSnap=await getDoc(imageRef(p.id));
+   const imageSnap=await getDocFromServer(imageRef(p.id));
    if(imageSnap.exists()){
     const image=imageSnap.data().imageData;
     if(typeof image==='string' && image.length<=109200 && /^data:image\/(webp|jpeg);base64,/.test(image))uploaded.push({id:p.id,image});
@@ -613,13 +617,15 @@ async function publishCatalog(){
   });
   message.textContent='公開しました：商品'+exposed.length+'件／商品画像'+uploaded.length+'枚。右のリンクからお客様ページを確認してください。';
   message.className='status';
+  return true;
  }catch(error){
   console.error('公開エラー',error);
   message.textContent='公開できませんでした：'+(error.code==='permission-denied'?'Firestoreのルールを確認してください。':error.message||'通信や容量の制限をご確認ください。');
   message.className='status error';
- }finally{setBusy(false);}
+  return false;
+ }finally{if(!allowBusy)setBusy(false);}
 }
-$('publish-catalog').addEventListener('click',publishCatalog);
+$('publish-catalog').addEventListener('click',()=>publishCatalog());
 async function refresh(){if(!user)return;try{
  const [catSnap,prodSnap]=await Promise.all([getDoc(catRef()),getDocs(coll())]);
  categories=catSnap.exists()&&Array.isArray(catSnap.data().categories)?catSnap.data().categories.filter(x=>typeof x==='string'):[];

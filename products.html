@@ -21,7 +21,7 @@
 <main>
 <div id="loading" class="notice">ログインとブランド情報を確認しています…</div>
 <div id="shell" hidden>
-<div class="notice">商品情報はまず管理画面に保存されます。公開したい内容が揃ったら、下の「お客様ページに反映」を押してください。非表示の商品はお客様ページに出ません。</div>
+<div class="notice">商品を保存すると、お客様ページにも自動公開します。公開でエラーが出た場合は、下の「お客様ページに反映」を押して再実行できます。非表示の商品はお客様ページに出ません。</div>
 <section class="card" aria-label="公開操作"><div class="toolbar"><h2>お客様ページへの反映</h2><span class="pill">ブランド別</span></div>
 <p class="muted">登録した商品・カテゴリ・画像・組合せ設定を公開します。保存後に商品を編集した場合も、もう一度反映してください。予約商品は「○月上旬・中旬・下旬予定」と表示されます。残り0点の通常商品はSOLD OUTになります。</p>
 <div class="row"><button type="button" class="primary" id="publish-catalog">お客様ページに反映</button><a id="public-customer-link" target="_blank" rel="noopener noreferrer" href="./index.html">お客様ページを別タブで確認 ↗</a></div>
@@ -105,6 +105,6 @@
   },15000);
 })();
 </script>
-<script type="module" src="./products.js?asset=20261016-image-stock-fix-v106" onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()"></script>
+<script type="module" src="./products.js?asset=20261016-auto-publish-v107" onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body></html>

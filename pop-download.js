@@ -5,7 +5,7 @@ const $=id=>document.getElementById(id);
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const pageSizes={A1:[594,841],A2:[420,594],A3:[297,420],A4:[210,297],A5:[148,210]};
 const state={db:null,user:null,brand:null,slug:'',brandName:'',customerUrl:'',template:null,logo:null,qrCanvas:null};
-const templatePath='./assets/pop-template-no-qr.png?v=20261016-nocard-v106';
+const templatePath='./assets/pop-template-no-qr.png?v=20261016-v107';
 const logoPath='./assets/pop-qr-logo.png?v=20261016-inkcenter-v105';
 function setStatus(msg,error=false,target='status'){const el=$(target); if(el){el.textContent=msg; el.className='status '+(error?'error':'good');}}
 function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('画像を読み込めません: '+src));img.src=src;});}
@@ -71,13 +71,16 @@ function composePoster(targetCanvas,template,qrCanvas){
  ctx.drawImage(qrCanvas,pos.x,pos.y,pos.w,pos.h);
  ctx.restore();
 }
-function buildQrSvg(text,logoDataUrl){
+function buildQrSvg(text){
  const qr=makeQrCore(text),count=qr.getModuleCount(),quiet=4,total=count+quiet*2;
- let rects='';for(let r=0;r<count;r++)for(let c=0;c<count;c++)
-  if(qr.isDark(r,c))rects+=`<rect x="${c+quiet}" y="${r+quiet}" width="1" height="1" fill="#111"/>`;
- const logoSize=total*0.18,logoPos=(total-logoSize)/2,r=logoSize*0.18;
- // SVG modules are vectors; the colored logo is embedded as PNG data.
- return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1080" height="1080" viewBox="0 0 ${total} ${total}"><rect width="${total}" height="${total}" fill="#fff"/>${rects}<rect x="${logoPos}" y="${logoPos}" width="${logoSize}" height="${logoSize}" rx="${r}" fill="#fff"/><image href="${logoDataUrl}" xlink:href="${logoDataUrl}" x="${logoPos+logoSize*0.07}" y="${logoPos+logoSize*0.07}" width="${logoSize*0.86}" height="${logoSize*0.86}" preserveAspectRatio="xMidYMid meet"/></svg>`;
+ // Monochrome, completely vector: each module is four straight cubic-Bezier
+ // segments with collinear control points. No embedded bitmap or colored logo.
+ const shapes=[];
+ for(let r=0;r<count;r++)for(let c=0;c<count;c++)if(qr.isDark(r,c)){
+  const x=c+quiet,y=r+quiet;
+  shapes.push(`M${x} ${y} C${x+1/3} ${y} ${x+2/3} ${y} ${x+1} ${y} C${x+1} ${y+1/3} ${x+1} ${y+2/3} ${x+1} ${y+1} C${x+2/3} ${y+1} ${x+1/3} ${y+1} ${x} ${y+1} C${x} ${y+2/3} ${x} ${y+1/3} ${x} ${y} Z`);
+ }
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 ${total} ${total}"><rect width="${total}" height="${total}" fill="#fff"/><path fill="#111" d="${shapes.join(' ')}"/></svg>`;
 }
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);}
 async function canvasBlob(canvas,type,quality){return await new Promise(resolve=>canvas.toBlob(resolve,type,quality));}
@@ -85,7 +88,7 @@ function selectedSizes(){return [...document.querySelectorAll('.size-check:check
 function selectedFormats(){return [...document.querySelectorAll('.qr-format:checked')].map(el=>el.value);}
 async function ensureAssets(){if(!state.template)state.template=await loadImage(templatePath); if(!state.logo)state.logo=await loadImage(logoPath); if(!state.qrCanvas){const base=renderQrCanvas(state.customerUrl,1080); state.qrCanvas=addLogoToQr(base,state.logo);} return true;}
 async function drawPreview(){try{await ensureAssets(); composePoster($('preview-canvas'),state.template,state.qrCanvas); setStatus('プレビューを更新しました。',false,'preview-status');}catch(err){console.error(err);setStatus(err.message||'プレビューの描画に失敗しました。',true,'preview-status');}}
-async function downloadQrFiles(){const formats=selectedFormats(); if(!formats.length){setStatus('QRの保存形式を1つ以上選択してください。',true);return;} try{setStatus('QRを生成しています…'); await ensureAssets(); const logoDataUrl=await (async()=>{const c=document.createElement('canvas');c.width=state.logo.naturalWidth;c.height=state.logo.naturalHeight;c.getContext('2d').drawImage(state.logo,0,0);return c.toDataURL('image/png');})(); const zip=(formats.length>1)?new window.JSZip():null; for(const fmt of formats){ if(fmt==='svg'){ const svg=buildQrSvg(state.customerUrl,logoDataUrl); const blob=new Blob([svg],{type:'image/svg+xml'}); if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.svg`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.svg`); } else { const mime=fmt==='jpg'?'image/jpeg':'image/png'; const blob=await canvasBlob(state.qrCanvas,mime,fmt==='jpg'?0.96:undefined); const ext=fmt==='jpg'?'jpg':'png'; if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`); } } if(zip){const blob=await zip.generateAsync({type:'blob'}); downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.zip`);} setStatus('QRを保存しました。'); }catch(err){console.error(err);setStatus(err.message||'QRの保存に失敗しました。',true);} }
+async function downloadQrFiles(){const formats=selectedFormats(); if(!formats.length){setStatus('QRの保存形式を1つ以上選択してください。',true);return;} try{setStatus('QRを生成しています…'); await ensureAssets(); const zip=(formats.length>1)?new window.JSZip():null; for(const fmt of formats){ if(fmt==='svg'){ const svg=buildQrSvg(state.customerUrl); const blob=new Blob([svg],{type:'image/svg+xml'}); if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.svg`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.svg`); } else { const mime=fmt==='jpg'?'image/jpeg':'image/png'; const blob=await canvasBlob(state.qrCanvas,mime,fmt==='jpg'?0.96:undefined); const ext=fmt==='jpg'?'jpg':'png'; if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`); } } if(zip){const blob=await zip.generateAsync({type:'blob'}); downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.zip`);} setStatus('QRを保存しました。'); }catch(err){console.error(err);setStatus(err.message||'QRの保存に失敗しました。',true);} }
 async function makePdfForSize(size){
  await ensureAssets();
  const [w,h]=pageSizes[size],dpi=300;

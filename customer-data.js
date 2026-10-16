@@ -26,6 +26,7 @@ async function requirePasswordBeforeDelete(description){
  catch(error){console.error('Firebase再認証に失敗',error.code);throw Error('パスワードを確認できませんでした。ログイン時のパスワードをご確認ください。');}
 }
 function message(value,failed=false){$('status').textContent=value;$('status').classList.toggle('error',failed);}
+function clearMessage(value,failed=false){message(value,failed); const e=$('clear-status'); if(e){e.textContent=value;e.style.color=failed?'#a3342d':'#147048';}}
 function lock(flag){
  busy=flag;
  if($('clear-test-history'))$('clear-test-history').disabled=flag||!owner;
@@ -179,17 +180,21 @@ async function reload(){if(!owner||busy)return;
   selectedSales=[...sales];
   message(`サーバーから全期間の履歴を取得：登録・配送情報 ${customers.length}件／販売履歴 ${sales.length}件（お渡し済み ${sales.filter(x=>x.status==='handedOff').length}件、取消済み ${sales.filter(x=>x.status==='cancelled').length}件、確保中 ${sales.filter(x=>x.status==='reserved').length}件）。\n※登録者データを消しても販売履歴は別保存先のため残ります。両方消す場合は各履歴を削除してください。`);
   refreshCounts();
- }catch(err){console.error(err);message('履歴の取得に失敗しました。認証・Firestoreルールを確認してください：'+(err.message||err),true);}finally{lock(false);}
+  return true;
+ }catch(err){console.error(err);message('履歴の取得に失敗しました。認証・Firestoreルールを確認してください：'+(err.message||err),true);return false;}finally{lock(false);}
 }
 $('load').onclick=reload;
 $('clear-test-history').onclick=async()=>{
- if(busy||!owner||!brand)return;
- if(sales.some(s=>s.status==='reserved')){message('在庫確保中の注文が残っています。先にお渡し完了または取消を行ってください。',true);return;}
+ if(busy){clearMessage('履歴の取得または操作中です。完了後にもう一度押してください。',true);return;}
+ if(!owner||!brand){clearMessage('管理者としてログインし、履歴を読み込んでください。',true);return;}
+ clearMessage('サーバーの最新データを確認中…');
+ if(!await reload()){clearMessage('最新の履歴を確認できなかったため、削除は実行していません。',true);return;}
+ if(sales.some(s=>s.status==='reserved')){clearMessage('在庫確保中の注文が残っています。先にお渡し完了または取消を行ってください。',true);return;}
  const saleIds=[...new Set(sales.filter(s=>['handedOff','cancelled'].includes(s.status)).map(s=>s.orderId))];
  const customerIds=[...new Set(customers.map(c=>c.orderId))];
- if(!saleIds.length&&!customerIds.length){message('削除対象の履歴はありません。');return;}
+ if(!saleIds.length&&!customerIds.length){clearMessage('削除対象の販売履歴・登録情報は0件です。');return;}
  if(!confirm('販売履歴 '+saleIds.length+'件と登録者・配送先 '+customerIds.length+'件を削除します。\n元に戻せず、在庫も復元されません。\n必要なCSVを保存してから進めてください。続けますか？'))return;
- try{if(!await requirePasswordBeforeDelete('販売履歴と登録者情報の一括クリア'))return;}catch(error){message(error.message,true);return;}
+ try{if(!await requirePasswordBeforeDelete('販売履歴と登録者情報の一括クリア')){clearMessage('削除をキャンセルしました。');return;}}catch(error){clearMessage(error.message,true);return;}
  lock(true);let saleDeleted=0,customerDeleted=0;const errors=[];
  try{
   // Sales and customer records are separate collections. Clear both, never public QR replay markers.
@@ -197,7 +202,7 @@ $('clear-test-history').onclick=async()=>{
   for(const id of customerIds){try{await deleteDoc(doc(db,'customerOrders',brand.slug,'orders',id));customerDeleted++;}catch(err){errors.push('顧客 '+id+'：'+(err.message||err));}}
  }finally{lock(false);}
  await reload();
- message('サーバー再取得済み：販売記録 '+sales.length+'件／登録情報 '+customers.length+'件。今回削除：販売 '+saleDeleted+'件／顧客 '+customerDeleted+'件。'+(errors.length?'\n失敗：'+errors.slice(0,7).join('\n'):''),errors.length>0);
+ clearMessage('サーバー再取得済み：販売記録 '+sales.length+'件／登録情報 '+customers.length+'件。今回削除：販売 '+saleDeleted+'件／顧客 '+customerDeleted+'件。'+(errors.length?'\n失敗：'+errors.slice(0,7).join('\n'):''),errors.length>0);
 };
 $('mail').onclick=()=>{
  const header=['注文ID','登録日時(JST)','氏名','メールアドレス','メール配信希望','注文状態','予約商品あり'];
@@ -245,6 +250,6 @@ if(!['apiKey','authDomain','projectId','appId'].every(k=>cfgValue(k)))message('F
 function cfgValue(k){return typeof firebase[k]==='string'&&firebase[k].length>0;}
 onAuthStateChanged(getAuth(app),async user=>{
  if(!user){location.replace('./login.html');return;}
- try{const docSnap=await getDoc(doc(db,'brands',user.uid));if(!docSnap.exists()||docSnap.data().ownerUid!==user.uid)throw Error('管理権限がありません。');owner=user;brand=docSnap.data();$('brand-state').textContent=`${brand.displayName}｜管理者のみ閲覧可能`;lock(false);await reload();}
+ try{const docSnap=await getDoc(doc(db,'brands',user.uid));if(!docSnap.exists()||docSnap.data().ownerUid!==user.uid)throw Error('管理権限がありません。');owner=user;brand=docSnap.data();$('brand-state').textContent=`${brand.displayName}｜管理者のみ閲覧可能`;lock(false);await reload();if($('clear-status'))$('clear-status').textContent='取得済み：販売 '+sales.length+'件／登録・配送 '+customers.length+'件。削除時はパスワード再認証が必要です。';}
  catch(err){console.error(err);message('ブランド情報を取得できません：'+(err.message||err),true);}
 });
