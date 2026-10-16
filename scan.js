@@ -403,13 +403,17 @@ async function handoff(){
  working=true;$('handoff').disabled=true;
  try{
   const refs=refsForOrder(candidate.raw);
+  const expiryMap={1:1,3:3,5:5,10:10};
   const data=await runTransaction(db,async tx=>{
-   const s=await tx.get(refs.sale);
+   const [s,settingsSnap]=await Promise.all([tx.get(refs.sale),tx.get(refs.settings)]);
    if(!s.exists())throw Error('注文履歴が見つかりません。');
    if(s.data().status==='handedOff')return s.data();
    if(s.data().status!=='reserved')throw Error('注文は取り消されています。お渡しできません。');
+   const settings=settingsSnap.exists()&&settingsSnap.data().brandId===user.uid?settingsSnap.data():{};
+   const handoffExpiryMinutes=expiryMap[Number(settings?.checkout?.handoffExpiryMinutes)]||5;
    tx.update(refs.sale,{status:'handedOff',updatedAt:serverTimestamp()});
-   return {...s.data(),status:'handedOff'};
+   tx.update(refs.confirmation,{status:'handedOff',modified:true,hasPreorder:!!s.data().hasPreorder,amount:s.data().amount,handedOffAt:serverTimestamp(),expiresInMinutes:handoffExpiryMinutes,updatedAt:serverTimestamp()});
+   return {...s.data(),status:'handedOff',handoffExpiryMinutes};
   });
   candidate.status=data.status;display('closed');
  }catch(err){window.alert(err.message||'お渡し情報を保存できませんでした。');}

@@ -85,6 +85,7 @@
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
   const state = { shippingPrefecture:'', category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
   let cancelOrderConfirmation=()=>{};
+  let orderExpiryTimer=null;
   // App updates are checked independently of the visible version (fixed at 1.0.1).
   const currentHashes = window.MEB_ASSET_HASHES || {};
   const hashSource = window.MEB_DIGEST_TEXT;
@@ -365,6 +366,7 @@
     // presenting customer has lost their item. Consult the order acknowledgement.
     if(!state.order){$('#view').innerHTML=`<div class="page-body"><h1 class="page-title">購入QR</h1><p class="page-subtitle">購入QRは再読み込みすると消えます。<br/>MY BAGから再度発行してください。</p><button class="primary-btn" data-nav="#bag">MY BAGを見る</button></div>`;return;}
     const order=state.order;
+    if(order.expired){$('#view').innerHTML=`<div class="page-body qr-page" role="status" aria-live="polite" style="padding-top:32px;text-align:center"><h1 class="page-title">このページは表示できません</h1><p class="page-subtitle">お渡し完了後のため、このページは自動的に無効化されました。</p><button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;return;}
     if(order.cancelled){
       $('#view').innerHTML=`<div class="page-body qr-page" role="status" aria-live="polite" style="padding-top:32px;text-align:center"><h1 class="page-title">ご注文は取り消されました</h1><p class="page-subtitle">スタッフが確保済みの商品をキャンセルし、在庫を戻しました。お支払い予定額はありません。</p><button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;return;
     }
@@ -378,6 +380,7 @@
           <div class="qr-order-id">${esc(order.id)}</div>${order.adjusted?`<p style="color:#9d3434;font-weight:700">商品取消を反映した金額です</p>`:""}<div class="qr-price-label">お支払い予定額</div>
           <div class="qr-price-base">${yen(order.total)}</div></section>
         ${deliveryForm}
+        ${order.handedOff?`<p class="tiny-text" style="margin-top:14px">お渡し完了後、このページは${[1,3,5,10].includes(Number(cfg.checkout?.handoffExpiryMinutes))?Number(cfg.checkout.handoffExpiryMinutes):5}分後に自動で無効になります。</p>`:''}
         ${!order.hasPreorder||order.deliverySaved?'<button class="outline-btn" data-nav="#home" style="margin-top:24px">商品一覧に戻る</button>':''}
       </div>`;
       return;
@@ -483,8 +486,8 @@
     $('#modal-root').innerHTML=`<div class="modal-backdrop" id="checkout-overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
       <div class="modal-heading"><h2 id="checkout-title" class="modal-title">購入QRを開く</h2><button type="button" class="icon-button" data-close-modal aria-label="閉じる">${ICONS.close}</button></div>
       ${discountOffer().mode!=='none'?(discountEligible(original.beforeAppDiscount)?`<div class="checkout-offer">お名前とメールを登録すると <strong>${discountText()}</strong>${discountCondition()}<br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:`<p class="offer-unmet" role="status">アプリ割引は税込${yen(discountOffer().minSpend)}以上で適用されます（現在は対象外です）。</p>`):''}
-      <p class="modal-desc">登録するか、入力せずに購入QRを表示するか選べます。</p>
-      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button><button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button></div>
+      <p class="modal-desc">${preorderLines().length?'予約商品が入っているため、お名前とメールアドレスの入力が必須です。':'登録するか、入力せずに購入QRを表示するか選べます。'}</p>
+      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button>${preorderLines().length?'':'<button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button>'}</div>
       <form id="checkout-form"><div id="registration-fields">
         <label class="form-label" for="buyer-name">お名前 <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-name" name="name" autocomplete="name" required maxlength="80" placeholder="山田 太郎"/>
         <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>
@@ -499,6 +502,7 @@
   }
   function setCheckoutMode(mode){
     if(!state.modalOpen||!['register','skip'].includes(mode))return;
+    if(preorderLines().length&&mode==='skip')return;
     state.checkoutMode=mode;
     const register=mode==='register';
     $('#registration-fields').hidden=!register;$('#skip-description').hidden=register;
@@ -508,9 +512,21 @@
     $('#checkout-price-preview').innerHTML=`<span>${register&&totals.appDiscountAmount>0?'割引後の': ''}お支払い予定額</span><strong>${yen(totals.total)}</strong>`;
     $('#checkout-error').textContent='';
   }
+  function clearOrderExpiryTimer(){if(orderExpiryTimer){clearTimeout(orderExpiryTimer);orderExpiryTimer=null;}}
+  function expireCustomerPage(){clearOrderExpiryTimer();cancelOrderConfirmation();cancelOrderConfirmation=()=>{};if(state.order){state.order.expired=true;state.order.handedOff=true;}if(location.hash==='#qr')render();}
+  function scheduleOrderExpiry(handoffAt){
+    clearOrderExpiryTimer();
+    const minutes=[1,3,5,10].includes(Number(cfg.checkout?.handoffExpiryMinutes))?Number(cfg.checkout.handoffExpiryMinutes):5;
+    const handoffMs=handoffAt instanceof Date?handoffAt.getTime():(handoffAt?.toDate?handoffAt.toDate().getTime():Date.now());
+    const expiresAt=handoffMs+minutes*60*1000;
+    if(state.order)state.order.expiresAt=expiresAt;
+    const remain=expiresAt-Date.now();
+    if(remain<=0){expireCustomerPage();return;}
+    orderExpiryTimer=setTimeout(expireCustomerPage,remain);
+  }
   function closeModal(){state.modalOpen=false;$('#modal-root').innerHTML='';}
   async function submitCheckout(form){
-    const registered=state.checkoutMode==='register';
+    const registered=preorderLines().length?true:state.checkoutMode==='register';
     if(registered&&!form.reportValidity())return;if(checkoutStockError()){toast(checkoutStockError());return;}
     const fd=new FormData(form),name=registered?String(fd.get('name')||'').trim():'',email=registered?String(fd.get('email')||'').trim():'';
     if(registered&&(!name||!email)){$('#checkout-error').textContent='お名前とメールアドレスを入力してください。';return;}
@@ -528,6 +544,7 @@
       }
     }catch(error){console.error('checkout save',error);$('#checkout-error').textContent='購入情報を安全に保存できませんでした。'+(error.code==='auth/operation-not-allowed'?'Firebase Authenticationで「匿名」を有効にしてください。':'通信環境・認証設定をご確認ください。')+' QRはまだ発行していません。';delete form.dataset.sending;submit.disabled=false;return;}
     delete form.dataset.sending;
+    clearOrderExpiryTimer();
     state.order={id,registered,name,email,prefecture:state.shippingPrefecture,deliverySaved:false,newsletterConsent:registered&&fd.get('news')==='on',createdAt:new Date().toISOString(),
       items,count:itemCount(),listSubtotal:totals.listSubtotal,eventSubtotal:totals.eventSubtotal,bundleSaving:totals.bundleSaving,
       beforeAppDiscount:totals.beforeAppDiscount,appDiscountPercent:totals.appDiscountPercent,appDiscountMode:totals.appDiscountMode,
@@ -553,8 +570,11 @@
           state.order.confirmed=true;
           state.order.cancelled=data.status==='cancelled';
           state.order.adjusted=data.modified===true;
+          state.order.handedOff=data.status==='handedOff';
+          if(data.status==='expired'){state.order.expired=true;clearOrderExpiryTimer();cancelOrderConfirmation();cancelOrderConfirmation=()=>{};}
           if(typeof data.hasPreorder==='boolean')state.order.hasPreorder=data.hasPreorder;
           if(Number.isInteger(data.amount)&&data.amount>=0)state.order.total=data.amount;
+          if(data.status==='handedOff'){scheduleOrderExpiry(data.handedOffAt||new Date());}
           if(location.hash==='#qr')render();
         },()=>{
           if(state.order?.id===watchedId && location.hash==='#qr')toast('確認状況を取得できません。通信環境をご確認ください。');

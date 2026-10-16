@@ -94,7 +94,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
     return onSnapshot(doc(db,'publicOrderConfirmations',slug,'orders',orderId),snapshot=>{
       if(!snapshot.exists())return;
       const data=snapshot.data();
-      if(data.slug===slug && data.orderId===orderId && ['confirmed','cancelled'].includes(data.status))notify(data);
+      if(data.slug===slug && data.orderId===orderId && ['confirmed','cancelled','handedOff','expired'].includes(data.status))notify(data);
     },error=>{
       console.warn('購入確認の同期に失敗しました',error);
       if(typeof onError==='function')onError(error);
@@ -132,6 +132,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   const shipping={mode:['threshold','prefecture'].includes(rawShipping.mode)?rawShipping.mode:'all',threshold:Math.max(0,Math.floor(Number(rawShipping.threshold)||0)),charge:Math.max(0,Math.floor(Number(rawShipping.charge)||0)),rates:rawShipping.rates&&typeof rawShipping.rates==='object'?rawShipping.rates:{}};
   const noveltyMode=['all','minimum','product'].includes(settings?.novelty?.mode)?settings.novelty.mode:'none';
   const noveltyId=noveltyMode==='product'&&productIds.has(settings?.novelty?.productId)?settings.novelty.productId:'';
+  const checkout={handoffExpiryMinutes:[1,3,5,10].includes(Number(settings?.checkout?.handoffExpiryMinutes))?Number(settings.checkout.handoffExpiryMinutes):5};
   return {
     version:'1.0.1',ownerBrandId:handle.brandId,
     brand:{id:slug,name,description:'',logoUrl:typeof handle.logoUrl==='string'?handle.logoUrl:'',
@@ -140,7 +141,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
     event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',
       appPurchaseDiscountMode:safeDiscount,appPurchaseDiscountValue:discountValue,appPurchaseDiscountMinSpend:discountMinSpend,
       banner:{enabled:!bannerHidden,imageData:bannerImage,link:bannerLink}},
-    categories,products,bundles,shipping,
+    categories,products,bundles,shipping,checkout,
     novelty:{enabled:noveltyMode!=='none',mode:noveltyMode,name:noveltyMode!=='none'?String(settings.novelty.name||''):'',minSpend:noveltyMode==='minimum'?settings.novelty.minSpend:0,productId:noveltyId},
     line:{enabled:false}
   };
