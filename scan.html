@@ -22,6 +22,7 @@ h2{font-size:18px;margin:0 0 13px}p{font-size:14px;line-height:1.7}.muted{color:
 button{border:0;border-radius:10px;padding:14px 16px;background:#183e50;color:#fff;font-weight:750;min-height:45px}button:disabled{opacity:.45;cursor:not-allowed}button.secondary{background:#e9f0f4;color:#193647}.wide{width:100%}.row{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}.row button{flex:1}
 textarea{width:100%;padding:12px;border:1px solid #aec0cb;border-radius:9px;font-size:13px;resize:vertical;min-height:85px}details{margin-top:20px;color:#485b68}summary{cursor:pointer;font-size:13px}
 #reader{margin:14px auto;max-width:450px}#reader video{max-width:100%}#result{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere;font-size:14px}#result.good{color:#125f45}#result.error{color:#b12020}
+.scan-instruction{margin:0 0 6px;color:#425d6c;font-size:13px;line-height:1.5}#scan-panel>.row{margin-top:8px}
 .warning{border-radius:10px;background:#fff4dd;padding:12px;color:#714b0a;font-size:13px;line-height:1.6}.subnote{margin-top:10px;font-size:13px;color:#596f7b;line-height:1.5}
 .line-list{display:flex;flex-direction:column;gap:10px;list-style:none;padding:0;margin:15px 0}.line-list li{display:flex;flex-direction:column;gap:10px;align-items:stretch;background:#f2f6f8;border:1px solid #e2e9ed;border-radius:10px;padding:14px 12px}.line-info{display:flex;align-items:center;justify-content:space-between;gap:10px}.cancel-line{background:#fff3f1!important;border:1px solid #df9f92!important;color:#923b30!important;min-height:38px!important;padding:8px 12px!important;font-size:13px!important}.line-name{font-weight:800;font-size:17px;line-height:1.45}.line-variant{font-size:14px;margin-top:5px;color:#4b6574;font-weight:650}.line-code{font-size:11px;margin-top:5px;color:#71828b}.line-qty{font-size:19px;font-weight:900;white-space:nowrap}.gift-notice{border:3px solid #e6a300;background:#fff2b4;color:#633300;font-weight:900;border-radius:12px;padding:17px 14px;font-size:20px;line-height:1.5;box-shadow:0 3px 10px #b4780020}.product-novelty-tag{display:inline-block;background:#f2e8cf;color:#624b23;padding:4px 7px;border-radius:6px;font-size:11px;font-weight:800;margin-top:5px}.big-total{border-top:1px solid #d6dfe4;margin-top:12px;padding-top:15px;display:flex;justify-content:space-between;align-items:center;gap:12px}.big-total strong{font-size:32px;letter-spacing:-.03em;white-space:nowrap}
 .confirm-field{display:flex;gap:12px;align-items:flex-start;padding:14px;margin:17px 0;background:#eaf5fa;border-radius:10px;font-size:15px;line-height:1.55;font-weight:750}.confirm-field input{width:22px;height:22px;flex:0 0 22px;margin-top:1px;accent-color:#183e50}
@@ -35,7 +36,7 @@ textarea{width:100%;padding:12px;border:1px solid #aec0cb;border-radius:9px;font
 <p class="muted" id="auth-state" role="status">管理者認証を確認中…</p>
 <section class="card" id="scan-panel">
 <div class="eyebrow">STEP 1 / QR読み取り</div><h2>お客様の購入QRを読み取る</h2>
-<p class="warning">QR読み取り時に在庫を確保します。商品単位で取り消すと在庫が戻ります。誤読した場合は残りの商品をすべて取り消してください。</p>
+<p class="scan-instruction">お客様のQRを読み取ると、購入内容を確認できます。</p>
 <div class="row"><button disabled="" id="camera-start" type="button">読み取り開始</button><button class="secondary" disabled="" id="camera-stop" type="button">カメラ停止</button></div>
 <div id="reader"></div>
 <p aria-live="polite" id="result" role="status">「読み取り開始」で購入QRをスキャンしてください。</p>
