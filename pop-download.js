@@ -5,31 +5,60 @@ const $=id=>document.getElementById(id);
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const pageSizes={A1:[594,841],A2:[420,594],A3:[297,420],A4:[210,297],A5:[148,210]};
 const state={db:null,user:null,brand:null,slug:'',brandName:'',customerUrl:'',template:null,logo:null,qrCanvas:null};
-const templatePath='./assets/pop-template-no-qr.png';
-const logoPath='./assets/pop-qr-logo.png';
+const templatePath='./assets/pop-template-no-qr.png?v=20261016-qrcenter-v103';
+const logoPath='./assets/pop-qr-logo.png?v=20261016-qrcenter-v103';
 function setStatus(msg,error=false,target='status'){const el=$(target); if(el){el.textContent=msg; el.className='status '+(error?'error':'good');}}
 function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('画像を読み込めません: '+src));img.src=src;});}
 function customerUrlFor(slug){const url=new URL('./index.html',location.href);url.searchParams.set('brand',slug);return url.href;}
 function makeQrCore(text){const qr=new window.QRCodeCore(0,window.QRErrorCorrectLevel.H);qr.addData(text);qr.make();return qr;}
-function renderQrCanvas(text,size=1200){const qr=makeQrCore(text); const count=qr.getModuleCount(); const quiet=4; const cell=Math.max(2,Math.floor(size/(count+quiet*2))); const total=cell*(count+quiet*2); const canvas=document.createElement('canvas'); canvas.width=total; canvas.height=total; const ctx=canvas.getContext('2d'); ctx.fillStyle='#fff';ctx.fillRect(0,0,total,total);ctx.fillStyle='#111'; const offset=quiet*cell; for(let r=0;r<count;r++)for(let c=0;c<count;c++)if(qr.isDark(r,c))ctx.fillRect(offset+c*cell,offset+r*cell,cell,cell); return canvas; }
+// Deliver exactly 1080x1080 raster images, with intact QR modules and a proper quiet zone.
+function renderQrCanvas(text,size=1080){
+ const qr=makeQrCore(text), count=qr.getModuleCount(), quiet=4;
+ const totalModules=count+quiet*2,cell=Math.floor(size/totalModules);
+ if(cell<2)throw Error('URLが長すぎてQRを生成できません。');
+ const canvas=document.createElement('canvas'); canvas.width=size;canvas.height=size;
+ const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
+ const origin=Math.floor((size-cell*totalModules)/2)+quiet*cell;
+ ctx.fillStyle='#111';
+ for(let row=0;row<count;row++)for(let col=0;col<count;col++)
+  if(qr.isDark(row,col))ctx.fillRect(origin+col*cell,origin+row*cell,cell,cell);
+ return canvas;
+}
 function addLogoToQr(baseCanvas,logoImage){const c=document.createElement('canvas'); c.width=baseCanvas.width; c.height=baseCanvas.height; const ctx=c.getContext('2d'); ctx.drawImage(baseCanvas,0,0); const s=Math.round(c.width*0.18); const x=(c.width-s)/2, y=(c.height-s)/2; const radius=Math.round(s*0.18); ctx.fillStyle='#fff'; roundRect(ctx,x,y,s,s,radius); ctx.fill(); ctx.save(); roundRect(ctx,x,y,s,s,radius); ctx.clip(); ctx.drawImage(logoImage,x+Math.round(s*0.07),y+Math.round(s*0.07),Math.round(s*0.86),Math.round(s*0.86)); ctx.restore(); return c; }
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+// QR is centered inside the SINGLE white rounded rectangle that already exists
+// in the approved 1054x1492 background. Do not paint a second rectangle.
+const POSTER_BASE_W=1054,POSTER_BASE_H=1492;
+const POSTER_QR={centerX:512,centerY:807,size:286};
 function composePoster(targetCanvas,template,qrCanvas){
- const ctx=targetCanvas.getContext('2d'); const w=targetCanvas.width,h=targetCanvas.height;
- ctx.clearRect(0,0,w,h); ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(template,0,0,w,h);
- const sx=w/1055,sy=h/1491,qrX=364*sx,qrY=672*sy,qrW=295*sx,qrH=295*sy;
- ctx.fillStyle='#fff';roundRect(ctx,qrX-13*sx,qrY-13*sy,qrW+26*sx,qrH+26*sy,24*Math.min(sx,sy));ctx.fill();
- // Keep QR modules crisp rather than blurring them while resizing for a large POP.
- ctx.save();ctx.imageSmoothingEnabled=false;ctx.drawImage(qrCanvas,qrX,qrY,qrW,qrH);ctx.restore();
+ const ctx=targetCanvas.getContext('2d'),w=targetCanvas.width,h=targetCanvas.height;
+ ctx.clearRect(0,0,w,h);
+ ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+ ctx.drawImage(template,0,0,w,h);
+ const qrW=POSTER_QR.size*w/POSTER_BASE_W;
+ const qrH=POSTER_QR.size*h/POSTER_BASE_H;
+ const qrX=POSTER_QR.centerX*w/POSTER_BASE_W-qrW/2;
+ const qrY=POSTER_QR.centerY*h/POSTER_BASE_H-qrH/2;
+ // Original white card is preserved intact. Its center is (512,807).
+ ctx.save();ctx.imageSmoothingEnabled=false;
+ ctx.drawImage(qrCanvas,qrX,qrY,qrW,qrH);
+ ctx.restore();
 }
-function buildQrSvg(text,logoDataUrl){const qr=makeQrCore(text); const count=qr.getModuleCount(); const quiet=4; const total=count+quiet*2; let rects=''; for(let r=0;r<count;r++)for(let c=0;c<count;c++)if(qr.isDark(r,c))rects+=`<rect x="${c+quiet}" y="${r+quiet}" width="1" height="1" fill="#111"/>`; const logoSize=total*0.18; const logoPos=(total-logoSize)/2; const r=logoSize*0.18; const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${total}" viewBox="0 0 ${total} ${total}"><rect width="${total}" height="${total}" rx="2" fill="#fff"/>${rects}<rect x="${logoPos}" y="${logoPos}" width="${logoSize}" height="${logoSize}" rx="${r}" fill="#fff"/><image href="${logoDataUrl}" x="${logoPos+logoSize*0.07}" y="${logoPos+logoSize*0.07}" width="${logoSize*0.86}" height="${logoSize*0.86}" preserveAspectRatio="xMidYMid meet"/></svg>`; return svg; }
+function buildQrSvg(text,logoDataUrl){
+ const qr=makeQrCore(text),count=qr.getModuleCount(),quiet=4,total=count+quiet*2;
+ let rects='';for(let r=0;r<count;r++)for(let c=0;c<count;c++)
+  if(qr.isDark(r,c))rects+=`<rect x="${c+quiet}" y="${r+quiet}" width="1" height="1" fill="#111"/>`;
+ const logoSize=total*0.18,logoPos=(total-logoSize)/2,r=logoSize*0.18;
+ // SVG modules are vectors; the colored logo is embedded as PNG data.
+ return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1080" height="1080" viewBox="0 0 ${total} ${total}"><rect width="${total}" height="${total}" fill="#fff"/>${rects}<rect x="${logoPos}" y="${logoPos}" width="${logoSize}" height="${logoSize}" rx="${r}" fill="#fff"/><image href="${logoDataUrl}" xlink:href="${logoDataUrl}" x="${logoPos+logoSize*0.07}" y="${logoPos+logoSize*0.07}" width="${logoSize*0.86}" height="${logoSize*0.86}" preserveAspectRatio="xMidYMid meet"/></svg>`;
+}
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);}
 async function canvasBlob(canvas,type,quality){return await new Promise(resolve=>canvas.toBlob(resolve,type,quality));}
 function selectedSizes(){return [...document.querySelectorAll('.size-check:checked')].map(el=>el.value);}
 function selectedFormats(){return [...document.querySelectorAll('.qr-format:checked')].map(el=>el.value);}
-async function ensureAssets(){if(!state.template)state.template=await loadImage(templatePath); if(!state.logo)state.logo=await loadImage(logoPath); if(!state.qrCanvas){const base=renderQrCanvas(state.customerUrl,1200); state.qrCanvas=addLogoToQr(base,state.logo);} return true;}
+async function ensureAssets(){if(!state.template)state.template=await loadImage(templatePath); if(!state.logo)state.logo=await loadImage(logoPath); if(!state.qrCanvas){const base=renderQrCanvas(state.customerUrl,1080); state.qrCanvas=addLogoToQr(base,state.logo);} return true;}
 async function drawPreview(){try{await ensureAssets(); composePoster($('preview-canvas'),state.template,state.qrCanvas); setStatus('プレビューを更新しました。',false,'preview-status');}catch(err){console.error(err);setStatus(err.message||'プレビューの描画に失敗しました。',true,'preview-status');}}
-async function downloadQrFiles(single=false){const formats=single?['png']:selectedFormats(); if(!formats.length){setStatus('QRの保存形式を1つ以上選択してください。',true);return;} try{setStatus('QRを生成しています…'); await ensureAssets(); const logoDataUrl=await (async()=>{const c=document.createElement('canvas');c.width=state.logo.naturalWidth;c.height=state.logo.naturalHeight;c.getContext('2d').drawImage(state.logo,0,0);return c.toDataURL('image/png');})(); const zip=(formats.length>1)?new window.JSZip():null; for(const fmt of formats){ if(fmt==='svg'){ const svg=buildQrSvg(state.customerUrl,logoDataUrl); const blob=new Blob([svg],{type:'image/svg+xml'}); if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.svg`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.svg`); } else { const mime=fmt==='jpg'?'image/jpeg':'image/png'; const blob=await canvasBlob(state.qrCanvas,mime,fmt==='jpg'?0.96:undefined); const ext=fmt==='jpg'?'jpg':'png'; if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`); } } if(zip){const blob=await zip.generateAsync({type:'blob'}); downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.zip`);} setStatus('QRを保存しました。'); }catch(err){console.error(err);setStatus(err.message||'QRの保存に失敗しました。',true);} }
+async function downloadQrFiles(){const formats=selectedFormats(); if(!formats.length){setStatus('QRの保存形式を1つ以上選択してください。',true);return;} try{setStatus('QRを生成しています…'); await ensureAssets(); const logoDataUrl=await (async()=>{const c=document.createElement('canvas');c.width=state.logo.naturalWidth;c.height=state.logo.naturalHeight;c.getContext('2d').drawImage(state.logo,0,0);return c.toDataURL('image/png');})(); const zip=(formats.length>1)?new window.JSZip():null; for(const fmt of formats){ if(fmt==='svg'){ const svg=buildQrSvg(state.customerUrl,logoDataUrl); const blob=new Blob([svg],{type:'image/svg+xml'}); if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.svg`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.svg`); } else { const mime=fmt==='jpg'?'image/jpeg':'image/png'; const blob=await canvasBlob(state.qrCanvas,mime,fmt==='jpg'?0.96:undefined); const ext=fmt==='jpg'?'jpg':'png'; if(zip)zip.file(`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`,blob); else downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.${ext}`); } } if(zip){const blob=await zip.generateAsync({type:'blob'}); downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_customer_qr.zip`);} setStatus('QRを保存しました。'); }catch(err){console.error(err);setStatus(err.message||'QRの保存に失敗しました。',true);} }
 async function makePdfForSize(size){
  await ensureAssets();
  const [w,h]=pageSizes[size],dpi=300;
@@ -44,6 +73,6 @@ async function makePdfForSize(size){
  }finally{canvas.width=0;canvas.height=0;}
 }
 async function downloadPopFiles(){const sizes=selectedSizes(); if(!sizes.length){setStatus('POPサイズを1つ以上選択してください。',true);return;} try{setStatus('POP PDFを生成しています…選択数が多い場合は少し時間がかかります。'); await ensureAssets(); const zip=sizes.length>1?new window.JSZip():null; for(const size of sizes){const blob=await makePdfForSize(size); const name=`MY_EXPO_BAG_${state.slug}_POP_${size}.pdf`; if(zip)zip.file(name,blob); else downloadBlob(blob,name);} if(zip){const blob=await zip.generateAsync({type:'blob'}); downloadBlob(blob,`MY_EXPO_BAG_${state.slug}_POP_bundle.zip`);} setStatus('POPを保存しました。'); }catch(err){console.error(err);setStatus(err.message||'POPの生成に失敗しました。',true);} }
-function bindUi(){ $('refresh-preview').addEventListener('click',()=>drawPreview()); $('download-qr').addEventListener('click',()=>downloadQrFiles(false)); $('download-qr-single').addEventListener('click',()=>downloadQrFiles(true)); $('download-pop').addEventListener('click',()=>downloadPopFiles()); $('copy-url').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(state.customerUrl); setStatus('URLをコピーしました。');}catch{setStatus('URLのコピーに失敗しました。',true);}}); $('size-all').addEventListener('change',e=>{document.querySelectorAll('.size-check').forEach(el=>el.checked=e.target.checked);}); document.querySelectorAll('.size-check').forEach(el=>el.addEventListener('change',()=>{const all=[...document.querySelectorAll('.size-check')]; const checked=all.filter(x=>x.checked).length; $('size-all').checked=checked===all.length; $('size-all').indeterminate=checked>0&&checked<all.length;}));}
+function bindUi(){ $('refresh-preview').addEventListener('click',()=>drawPreview()); $('download-qr').addEventListener('click',()=>downloadQrFiles()); $('download-pop').addEventListener('click',()=>downloadPopFiles()); $('copy-url').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(state.customerUrl); setStatus('URLをコピーしました。');}catch{setStatus('URLのコピーに失敗しました。',true);}}); $('size-all').addEventListener('change',e=>{document.querySelectorAll('.size-check').forEach(el=>el.checked=e.target.checked);}); document.querySelectorAll('.size-check').forEach(el=>el.addEventListener('change',()=>{const all=[...document.querySelectorAll('.size-check')]; const checked=all.filter(x=>x.checked).length; $('size-all').checked=checked===all.length; $('size-all').indeterminate=checked>0&&checked<all.length;}));}
 async function init(){ if(!['apiKey','authDomain','projectId','appId'].every(k=>typeof cfg[k]==='string'&&cfg[k])){$('loading').textContent='Firebase設定をご確認ください。';return;} try{const app=getApps().length?getApp():initializeApp(cfg); state.db=getFirestore(app); onAuthStateChanged(getAuth(app),async user=>{ if(!user){location.replace('./login.html');return;} try{ const brandSnap=await getDoc(doc(state.db,'brands',user.uid)); if(!brandSnap.exists()||brandSnap.data().ownerUid!==user.uid)throw new Error('ブランド情報を確認できません。'); const brand=brandSnap.data(); state.user=user; state.brand=brand; state.slug=brand.slug; const handle=await getDocFromServer(doc(state.db,'brandHandles',state.slug)); state.brandName=handle.exists()?String(handle.data().displayName||state.slug):state.slug; state.customerUrl=customerUrlFor(state.slug); $('customer-url').textContent=state.customerUrl; $('loading').hidden=true; $('shell').hidden=false; bindUi(); await drawPreview(); }catch(err){console.error(err); $('loading').textContent='ブランド情報を読み込めませんでした。'; }});}catch(err){console.error(err); $('loading').textContent='画面を初期化できませんでした。'; }}
 init();
