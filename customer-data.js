@@ -15,7 +15,7 @@ async function requirePasswordBeforeDelete(description){
   const label=document.createElement('label');label.textContent='ログインパスワード';label.htmlFor='confirm-login-password';label.style.cssText='display:block;margin:12px 0 6px;font-size:13px;font-weight:700';
   const input=document.createElement('input');input.id='confirm-login-password';input.type='password';input.autocomplete='current-password';input.required=true;input.style.cssText='width:100%;box-sizing:border-box;border:1px solid #a9bdc5;border-radius:8px;padding:12px;font-size:16px';
   const row=document.createElement('div');row.style.cssText='display:flex;justify-content:flex-end;gap:10px;margin-top:18px';
-  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='キャンセル';cancel.style.cssText='padding:12px;border:1px solid #bbb;background:#fff;border-radius:8px';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='キャンセル';cancel.style.cssText='padding:12px;border:1px solid #a4b5c0;background:#fff;color:#19303f;-webkit-text-fill-color:#19303f;border-radius:8px;font-weight:800';
   const submit=document.createElement('button');submit.type='submit';submit.textContent='再認証して削除';submit.style.cssText='padding:12px;background:#174a60;color:white;border:0;border-radius:8px';
   const done=value=>{const answer=value===null?null:input.value;input.value='';overlay.remove();resolve(value===null?null:answer);};
   cancel.onclick=()=>done(null);card.onsubmit=e=>{e.preventDefault();done(true);};

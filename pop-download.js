@@ -5,8 +5,8 @@ const $=id=>document.getElementById(id);
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const pageSizes={A1:[594,841],A2:[420,594],A3:[297,420],A4:[210,297],A5:[148,210]};
 const state={db:null,user:null,brand:null,slug:'',brandName:'',customerUrl:'',template:null,logo:null,qrCanvas:null};
-const templatePath='./assets/pop-template-no-qr.png?v=20261016-print-v108';
-const printTemplatePath='./assets/pop-template-print-a1.jpg?v=20261016-print-v108';
+const templatePath='./assets/pop-template-no-qr.png?v=20261016-clean-v110';
+const printTemplatePath='./assets/pop-template-print-a1.jpg?v=20261016-clean-v110';
 const logoPath='./assets/pop-qr-logo.png?v=20261016-inkcenter-v105';
 function setStatus(msg,error=false,target='status'){const el=$(target); if(el){el.textContent=msg; el.className='status '+(error?'error':'good');}}
 function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('画像を読み込めません: '+src));img.src=src;});}
