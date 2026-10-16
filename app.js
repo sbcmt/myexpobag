@@ -332,7 +332,8 @@
       ${totals.bundles.map(b=>`<div class="order-row"><span class="order-label">セット割引：${esc(b.name)} × ${b.count}</span><span class="order-positive">−${yen(b.saving)}</span></div>`).join('')}
       <div class="order-total"><span>商品合計（税込）</span><strong>${yen(totals.beforeAppDiscount)}</strong></div>
       ${discountOffer().mode!=='none'?(discountEligible(totals.beforeAppDiscount)?`<div class="register-offer">お名前とメール登録で <strong>さらに${discountText()}</strong>${discountCondition()}<br/>登録後 ${yen(totalCalc(true).total)} ／ 登録せず購入も可能</div>`:`<p class="offer-unmet" role="status">アプリ割引は税込${yen(discountOffer().minSpend)}以上で適用されます（現在は対象外です）。</p>`):''}
-      ${preorderLines().length?`<div class="order-row"><span>予約商品・配送</span><strong>${shippingNeedsPref()&&!state.shippingPrefecture?'都道府県を選択してください':totals.shippingFee>0?yen(totals.shippingFee)+'（送料）':'送料当社負担'}</strong></div>`:''}
+      ${preorderLines().length?`<div class="order-row"><span>送料（税込）</span><strong>${shippingNeedsPref()&&!state.shippingPrefecture?'都道府県を選択してください':totals.shippingFee>0?yen(totals.shippingFee):'送料当社負担（¥0）'}</strong></div>
+      <div class="order-payable-total" role="status" aria-label="送料を含むお支払い予定合計"><span>お支払い予定合計（税込・送料含む${discountOffer().mode!=='none'&&discountEligible(totals.beforeAppDiscount)?'・登録前':''})</span><strong>${shippingNeedsPref()&&!state.shippingPrefecture?'配送先選択後に表示':yen(totals.total)}</strong></div>`:''}
       <div class="tiny-text" style="text-align:right;margin-top:9px">お支払いは会場で</div></section>
       ${cfg.novelty?.enabled&&cfg.novelty.mode==='all'?`<div class="gift-eligible"><strong>✦ ${esc(cfg.novelty.name)}</strong><p>購入者全員が対象です。${esc(giftCaution)}</p></div>`:''}
       <div class="purchase-action">${needColors.length?`<p class="color-warning">バリエーションが未選択の商品があります。該当商品を開いてカラーを選び直してください。</p>`:''}<button class="primary-btn" data-checkout ${needColors.length||checkoutStockError()?'disabled':''}>購入QRを開く　→</button><p class="helptext">予約商品を含む場合は発送先情報が必要です。通常商品だけの場合、登録をスキップできます。</p></div>`:
@@ -516,7 +517,7 @@
       <div class="modal-heading"><h2 id="checkout-title" class="modal-title">購入QRを開く</h2><button type="button" class="icon-button" data-close-modal aria-label="閉じる">${ICONS.close}</button></div>
       ${discountOffer().mode!=='none'?(offer.appDiscountAmount>0?`<div class="checkout-offer">お名前とメールを登録すると <strong>${discountText()}</strong>${discountCondition()}<br/><span>登録なら ${yen(offer.total)} ／ スキップなら ${yen(original.total)}</span></div>`:`<p class="offer-unmet" role="status">アプリ割引は税込${yen(discountOffer().minSpend)}以上で適用されます（現在は対象外です）。</p>`):''}
       <p class="modal-desc">${preorderLines().length?'予約商品が入っているため、お名前とメールアドレスの入力が必須です。':'登録するか、入力せずに購入QRを表示するか選べます。'}</p>
-      <div class="auth-tabs" role="group" aria-label="購入者情報の登録"><button class="auth-tab active" data-checkout-mode="register" type="button" aria-pressed="true">登録して購入</button>${preorderLines().length?'':'<button class="auth-tab" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button>'}</div>
+      ${preorderLines().length?'':'<button class="auth-tab" style="width:100%;margin:12px 0" data-checkout-mode="skip" type="button" aria-pressed="false">入力をスキップ → QR表示</button>'}
       <form id="checkout-form"><div id="registration-fields">
         <label class="form-label" for="buyer-name">お名前 <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-name" name="name" autocomplete="name" required maxlength="80" placeholder="山田 太郎"/>
         <label class="form-label" for="buyer-email">メールアドレス <span style="color:#ae5d51">*</span></label><input class="form-input" id="buyer-email" name="email" type="email" autocomplete="email" required maxlength="200" placeholder="sample@example.com"/>

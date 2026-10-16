@@ -146,3 +146,8 @@ a.meb-banner-wrap{display:block;cursor:pointer;text-decoration:none}a.meb-banner
    preorder product page; MY BAG itself is confirmation-only. */
 .prefecture-change-btn{margin-top:8px;padding:7px 12px;border:1px solid #9eb7af;border-radius:8px;background:#fff;color:#315746;font-size:12px;font-weight:700;cursor:pointer}
 .prefecture-change-btn:focus-visible{outline:3px solid var(--main);outline-offset:2px}
+
+/* MY BAG: clearly distinguish merchandise subtotal from payable total including shipping. */
+.order-payable-total{border-top:2px solid var(--main);margin-top:16px;padding-top:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-weight:900;color:var(--ink)}
+.order-payable-total span{font-size:13px;line-height:1.5}
+.order-payable-total strong{font-size:clamp(19px,5vw,26px);line-height:1.35;white-space:normal;text-align:right;color:var(--main)}
