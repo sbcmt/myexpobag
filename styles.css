@@ -142,3 +142,7 @@ a.meb-banner-wrap{display:block;cursor:pointer;text-decoration:none}a.meb-banner
 .shipping-detail-fee{font-size:12px;color:var(--ink);font-weight:800;margin:8px 0 18px}.shipping-detail-fee span{font-size:10px;color:#60706d;font-weight:500}
 
 .site-footer{flex-wrap:wrap;gap:8px;justify-content:center}.site-footer a{font-size:11px;text-underline-offset:3px}
+/* Customer shipping: the delivery prefecture can be corrected from the
+   preorder product page; MY BAG itself is confirmation-only. */
+.prefecture-change-btn{margin-top:8px;padding:7px 12px;border:1px solid #9eb7af;border-radius:8px;background:#fff;color:#315746;font-size:12px;font-weight:700;cursor:pointer}
+.prefecture-change-btn:focus-visible{outline:3px solid var(--main);outline-offset:2px}

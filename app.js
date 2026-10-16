@@ -85,7 +85,13 @@
     }else targets.forEach(load);
   }
   const cartKey = `meb-cart-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
-  const state = { shippingPrefecture:'', category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
+  const shippingPrefKey = `meb-pref-${cfg.version}-${cfg.brand.id}-${cfg.event.id}`;
+  const state = { editPrefecture:false, shippingPrefecture:'', category:'all', cart:{}, selectedColors:{}, pendingBundle:'', order:null, checkoutMode:'register', modalOpen:false, previewTheme:null, toastTimer:null };
+  // Preserve the first shipping choice when the customer reopens an existing BAG.
+  try {
+    const previous=localStorage.getItem(shippingPrefKey);
+    if(window.MEB_SHIPPING.validPref(previous))state.shippingPrefecture=previous;
+  } catch { /* Continue with a new selection when browser storage is unavailable. */ }
   let cancelOrderConfirmation=()=>{};
   let orderExpiryTimer=null;
   let stopLiveStock=()=>{};
@@ -161,14 +167,19 @@
   const shippingNeedsPref=()=>cfg.shipping?.mode==='prefecture'&&preorderLines().length>0;
   const shippingSelector=(context='bag')=>{
     if(cfg.shipping?.mode!=='prefecture')return '';
-    // One shipping destination per cart: the first choice is shared by all
-    // preorder products, including additional quantities and later additions.
-    if(context==='detail'&&state.shippingPrefecture){
-      return `<div class="shipping-prefecture-picker" role="status"><strong>配送先：${esc(state.shippingPrefecture)}</strong><p>先に選んだ都道府県を、この予約商品にも自動で適用します。変更はMY BAGで行えます。</p></div>`;
+    if(context==='bag'){
+      // MY BAG only confirms the address chosen on the product page.
+      // A second picker could silently change the already-quoted shipping fee.
+      if(state.shippingPrefecture)return `<div class="shipping-prefecture-picker" role="status"><strong>予約商品の配送先：${esc(state.shippingPrefecture)}</strong></div>`;
+      const first=preorderLines()[0];
+      return `<div class="shipping-prefecture-picker" role="alert"><strong>予約商品の配送先が未選択です。</strong><p>商品ページで都道府県を選択してください。</p>${first?`<button type="button" class="outline-btn" data-open-product="${esc(first.id)}">予約商品のページへ →</button>`:''}</div>`;
     }
-    return `<div class="shipping-prefecture-picker" role="group" aria-label="配送先都道府県"><strong>${state.shippingPrefecture?'予約商品の配送先を確認してください。':'お住まいの都道府県を選んでください。'}</strong>
-      <label for="shipping-pref-${context}">配送先の都道府県</label><select id="shipping-pref-${context}" data-select-pref><option value="">選択してください</option>${prefOptions()}</select>
-      <p>${state.shippingPrefecture?`選択中：${esc(state.shippingPrefecture)}。すべての受注予約品に共通で適用します。変更すると送料も再計算されます。`:'一度選ぶと、2個目以降の受注予約品にも自動で引き継がれます。送料はMY BAGでまとめて計算されます。'}</p></div>`;
+    if(state.shippingPrefecture&&!state.editPrefecture){
+      return `<div class="shipping-prefecture-picker" role="status"><strong>予約商品の配送先：${esc(state.shippingPrefecture)}</strong><p>選択済みの都道府県は、ほかの予約商品にも自動で適用されます。</p><button type="button" class="prefecture-change-btn" data-edit-pref>配送先を変更する</button></div>`;
+    }
+    return `<div class="shipping-prefecture-picker" role="group" aria-label="配送先都道府県"><strong>お住まいの都道府県を選んでください。</strong>
+      <label for="shipping-pref-detail">配送先の都道府県</label><select id="shipping-pref-detail" data-select-pref><option value="">選択してください</option>${prefOptions()}</select>
+      <p>一度選ぶと、予約商品のMY BAGにも自動で反映されます。</p></div>`;
   };
   const deliveryFor=(base,items=cartLines())=>window.MEB_SHIPPING.calc(cfg.shipping,base,items.some(x=>isPreorder(x.product,x.color)),state.shippingPrefecture);
   const totalCalc = (registered=false) => {
@@ -455,6 +466,11 @@
       else{nav('#product/'+encodeURIComponent(id));toast('バリエーションを選択してください');}
       return;
     }
+    // A preorder cannot enter the BAG until its shipping destination is chosen.
+    if(cfg.shipping?.mode==='prefecture'&&isPreorder(product,color)&&!state.shippingPrefecture){
+      if(location.hash!=='#product/'+encodeURIComponent(id))nav('#product/'+encodeURIComponent(id));
+      toast('予約商品の配送先都道府県を先に選んでください。');return;
+    }
     const key=skuKey(id,color);
     if((state.cart[key]||0)>=20){toast('1商品・カラーあたり20点までです');return;}
     if(variantStock(product,color)===0){toast('このバリエーションは完売しました');return;}
@@ -470,6 +486,10 @@
       nav('#product/'+encodeURIComponent(needsColor[0]));
       toast('この組み合わせのバリエーションを選択してください');
       return;
+    }
+    if(cfg.shipping?.mode==='prefecture'&&!state.shippingPrefecture){
+      const pendingPreorder=missing.find(([pid])=>isPreorder(byId(pid),state.selectedColors[pid]||''));
+      if(pendingPreorder){nav('#product/'+encodeURIComponent(pendingPreorder[0]));toast('予約商品の配送先都道府県を先に選んでください。');return;}
     }
     for(const [pid,qty] of missing){
       const key=skuKey(pid,state.selectedColors[pid]||'');
@@ -610,13 +630,15 @@
   document.addEventListener('change',event=>{
     if(event.target.matches('[data-select-pref]')){
       state.shippingPrefecture=window.MEB_SHIPPING.validPref(event.target.value)?event.target.value:'';
+      state.editPrefecture=false;
+      try { if(state.shippingPrefecture)localStorage.setItem(shippingPrefKey,state.shippingPrefecture);else localStorage.removeItem(shippingPrefKey); } catch { /* In-memory selection still works. */ }
       render();
     }
   });
   document.addEventListener('click', event=>{
     if(event.target.closest('[data-lookup-zip]')){void lookupPostal();return;}
     if(event.target.id==='checkout-overlay'){closeModal();return;}
-    const clickable=event.target.closest('[data-nav],[data-open-product],[data-add],[data-qty],[data-remove],[data-add-bundle],[data-category],[data-checkout],[data-close-modal],[data-theme],[data-variant],[data-checkout-mode]');
+    const clickable=event.target.closest('[data-nav],[data-open-product],[data-add],[data-qty],[data-remove],[data-add-bundle],[data-category],[data-checkout],[data-close-modal],[data-theme],[data-variant],[data-checkout-mode],[data-edit-pref]');
     if(!clickable)return;
     if(clickable.hasAttribute('data-nav')){state.pendingBundle='';nav(clickable.dataset.nav);}
     else if(clickable.hasAttribute('data-open-product'))nav('#product/'+encodeURIComponent(clickable.dataset.openProduct));
@@ -629,6 +651,7 @@
     else if(clickable.hasAttribute('data-close-modal'))closeModal();
     else if(clickable.hasAttribute('data-theme')){state.previewTheme=clickable.dataset.theme;render();}
     else if(clickable.hasAttribute('data-variant')){state.selectedColors[clickable.dataset.product]=clickable.dataset.variant;render();}
+    else if(clickable.hasAttribute('data-edit-pref')){state.editPrefecture=true;render();}
     else if(clickable.hasAttribute('data-checkout-mode')){
       const mode=clickable.dataset.checkoutMode;
       setCheckoutMode(mode);

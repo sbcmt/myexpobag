@@ -142,13 +142,30 @@
       window.MEB_PRODUCT_QR_ERROR=(reason)=>{list.replaceChildren();const msg=document.createElement('p');msg.className='muted';msg.textContent='商品情報の取得に失敗しました：'+reason;list.append(msg);};
       const loading=document.createElement('p');loading.className='muted';loading.textContent='登録済みの商品を読み込み中…';list.append(loading);
       all.addEventListener('change',()=>{list.querySelectorAll('input[data-id]').forEach(el=>el.checked=all.checked);sync()});
+      // Product QR uses the same "管理ページ" return navigation as other admin sections.
+      // This feature lives inside admin.html, so change the existing header button
+      // temporarily rather than create a separate page or alter export functionality.
+      const setProductQrMode=(active)=>{
+        qrPanel.hidden=!active;
+        btnMenu.textContent=active?'← 管理ページ':'☰ メニュー';
+        btnMenu.setAttribute('aria-controls',active?'product-qr-panel':'menu-panel');
+        btnMenu.setAttribute('aria-expanded',String(active));
+        btnQr.setAttribute('aria-expanded',String(active));
+      };
       btnMenu.addEventListener('click',()=>{
+        if(!qrPanel.hidden){
+          menu.hidden=true;
+          setProductQrMode(false);
+          window.scrollTo({top:0,behavior:'smooth'});
+          return;
+        }
         const opened=menu.hidden;
-        menu.hidden=!opened;qrPanel.hidden=true;
-        btnQr.setAttribute('aria-expanded','false');btnMenu.setAttribute('aria-expanded',String(opened));
+        menu.hidden=!opened;
+        btnMenu.setAttribute('aria-expanded',String(opened));
       });
       btnQr.addEventListener('click',()=>{
-        menu.hidden=true;qrPanel.hidden=false;btnQr.setAttribute('aria-expanded','true');btnMenu.setAttribute('aria-expanded','false');
+        menu.hidden=true;
+        setProductQrMode(true);
         qrPanel.scrollIntoView({block:'start',behavior:'smooth'});
       });
 
