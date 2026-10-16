@@ -205,18 +205,18 @@ function variantRow(values={}){
  codeBox.append(prefix,codeInput);codeBox.classList.add('subcode-input');code.querySelector('label').after(codeBox);main.append(code);
  const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.className='danger';remove.addEventListener('click',()=>{row.remove();updateTotalStockField();});main.append(remove);row.append(main);
  const prices=document.createElement('div');prices.className='cols';prices.append(make('バリエーション通常価格（任意）','variant-price','未設定なら商品価格',values.price));prices.append(make('バリエーション展示会特価（任意）','variant-event-price','未設定なら商品価格',values.eventPrice));prices.append(make('バリエーション在庫数（任意）','variant-stock','空欄は無制限・0は完売',values.stock));row.append(prices);
- const preorderWrap=document.createElement('div');preorderWrap.className='field';preorderWrap.style.marginTop='8px';
- const preLabel=document.createElement('label');preLabel.textContent='このバリエーションの受注予約';
- const preSelect=document.createElement('select');preSelect.className='variant-preorder';
- for(const [value,label] of [['inherit','商品全体の設定に従う'],['yes','このバリエーションは予約受注'],['no','このバリエーションは通常販売']]){const o=document.createElement('option');o.value=value;o.textContent=label;preSelect.append(o);}
- preSelect.value=typeof values.preorder==='boolean'?(values.preorder?'yes':'no'):'inherit';
- preSelect.addEventListener('change',toggleRelease);preorderWrap.append(preLabel,preSelect);row.append(preorderWrap);
+ const preorderWrap=document.createElement('label');preorderWrap.className='variant-preorder-label';
+ const preorderBox=document.createElement('input');preorderBox.type='checkbox';preorderBox.className='variant-preorder';
+ preorderBox.checked=values.preorder===true||values.preorder==='1';
+ const preorderText=document.createElement('span');preorderText.textContent='このバリエーションを予約受注';
+ preorderWrap.append(preorderBox,preorderText);row.append(preorderWrap);
+ preorderBox.addEventListener('change',toggleRelease);
  return row;
 }
 function refreshSubcodePrefixes(){const id=trim($('product-id').value)||'商品ID';for(const el of document.querySelectorAll('.subcode-prefix'))el.textContent=id+'_';}
 $('product-id').addEventListener('input',refreshSubcodePrefixes);
 for(let m=1;m<=12;m++){const option=document.createElement('option');option.value=String(m);option.textContent=m+'月';$('release-month').append(option);}
-function toggleRelease(){const required=$('product-preorder').checked||[...document.querySelectorAll('.variant-preorder')].some(x=>x.value==='yes');$('release-settings').hidden=!required;$('release-month').required=required;$('release-period').required=required;}
+function toggleRelease(){const entire=$('product-preorder').checked;const boxes=[...document.querySelectorAll('.variant-preorder')];for(const box of boxes){box.disabled=entire;box.parentElement.title=entire?'商品全体が予約受注のため、すべてのバリエーションが予約扱いになります。':'';}const required=entire||boxes.some(x=>x.checked);$('release-settings').hidden=!required;$('release-month').required=required;$('release-period').required=required;}
 $('product-preorder').addEventListener('change',toggleRelease);toggleRelease();
 function showVariants(variants=[]){
  const root=$('variant-rows');root.replaceChildren();const rows=variants.length?variants:[{},{},{}];
@@ -231,8 +231,8 @@ function readVariants(id){
   const priceText=trim(el.querySelector('.variant-price').value);
   const eventText=trim(el.querySelector('.variant-event-price').value);
   const stockText=trim(el.querySelector('.variant-stock').value);
-  const preorderOverride=el.querySelector('.variant-preorder').value;
-  if(!name&&!raw&&!priceText&&!eventText&&!stockText&&preorderOverride==='inherit')continue;
+  const variantPreorder=el.querySelector('.variant-preorder').checked;
+  if(!name&&!raw&&!priceText&&!eventText&&!stockText&&!variantPreorder)continue;
   if(!name||!raw)throw Error('バリエーション名とサブコードはセットで入力してください。');
   if(raw.startsWith(id+'_'))throw Error('サブコード欄には商品IDを含めず、BKなど末尾だけを入力してください。');
   const code=raw.toUpperCase();
@@ -241,7 +241,7 @@ function readVariants(id){
   const price=money(priceText,'バリエーション通常価格',true),eventPrice=money(eventText,'バリエーション展示会価格',true);
   if(price!==null&&eventPrice!==null&&eventPrice>=price)throw Error('バリエーション展示会価格は同じバリエーションの通常価格未満にしてください。');
   const stock=money(stockText,'バリエーション在庫数',true);
-  result.push({code,name,price,eventPrice,stock,preorder:preorderOverride==='inherit'?null:preorderOverride==='yes'});
+  result.push({code,name,price,eventPrice,stock,preorder:variantPreorder?true:null});
  }
  if(result.length>MAX_VARIANTS)throw Error('バリエーションは100件以内にしてください。');
  return result;
