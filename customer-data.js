@@ -6,7 +6,15 @@ const $=id=>document.getElementById(id),firebase=window.MEB_FIREBASE_CONFIG||{};
 const app=getApps().length?getApp():initializeApp(firebase),db=getFirestore(app);
 let owner=null,brand=null,busy=false,customers=[],sales=[],selectedCustomers=[],selectedSales=[];
 function message(value,failed=false){$('status').textContent=value;$('status').classList.toggle('error',failed);}
-function lock(flag){busy=flag;['load','mail','sales','shipping','shipping-xlsx'].forEach(id=>$(id).disabled=flag||!owner);}
+function lock(flag){
+ busy=flag;
+ ['load','mail','sales','shipping','shipping-xlsx'].forEach(id=>$(id).disabled=flag||!owner);
+ for(const [type,selectId,deleteId] of [['customer','select-customers','delete-customers'],['sale','select-sales','delete-sales']]){
+  const eligible=type==='customer'?selectedCustomers.length:selectedSales.filter(x=>['handedOff','cancelled'].includes(x.status)).length;
+  $(selectId).disabled=flag||!owner||eligible===0;
+  $(deleteId).disabled=flag||!owner||historyPicked(type).length===0;
+ }
+}
 const localDate=(date)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
 const localStamp=date=>new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(date);
 const dateOf=x=>x?.toDate?.()|| (typeof x==='string'?new Date(x):null);
@@ -32,12 +40,85 @@ function writeCsv(filename,header,rows){
 }
 function nameFor(type,ext='csv'){return `MY_EXPO_BAG_${brand.slug}_${type}_${localDate(new Date()).replaceAll('-','')}.${ext}`;}
 const receiptState=id=>sales.find(s=>s.orderId===id)?.status||'QR発行済み（未受付）';
+function renderHistory(){
+ // Status and count are scoped to the selected JST date range; do not change other periods.
+ const configs=[
+  {data:selectedCustomers,id:'customer-history',className:'registration-select',select:'select-customers',del:'delete-customers',count:'customer-selection-count',type:'customer'},
+  {data:selectedSales,id:'sales-history',className:'sale-select',select:'select-sales',del:'delete-sales',count:'sales-selection-count',type:'sale'}
+ ];
+ for(const cfg of configs){
+  const ul=$(cfg.id);ul.replaceChildren();let available=0;
+  for(const rec of cfg.data){
+   const eligible=cfg.type==='customer'||['handedOff','cancelled'].includes(rec.status);
+   if(eligible)available++;
+   const li=document.createElement('li');if(!eligible)li.className='blocked';
+   const cb=document.createElement('input');cb.type='checkbox';cb.className=cfg.className;cb.value=rec.orderId||rec.id;
+   cb.disabled=!eligible;cb.setAttribute('aria-label',(rec.orderId||rec.id)+' を削除対象に選択');
+   const info=document.createElement('span');
+   info.textContent=cfg.type==='customer'?(rec.orderId||rec.id)+'｜'+(rec.buyerName||rec.shipping?.name||'氏名未登録')+(rec.deliverySubmitted?'｜配送先登録済み':''):
+     (rec.orderId||rec.id)+'｜'+({handedOff:'お渡し済み',cancelled:'取消済み',reserved:'在庫確保中'}[rec.status]||rec.status||'不明')+'｜'+(Number(rec.amount||0)).toLocaleString('ja-JP')+'円';
+   if(!eligible){const t=document.createElement('small');t.textContent='（処理中のため削除不可）';info.append(t);}
+   li.append(cb,info);ul.append(li);
+  }
+  if(!cfg.data.length){const li=document.createElement('li');li.textContent='該当する履歴はありません。';ul.append(li);}
+  $(cfg.select).disabled=busy||!owner||available===0;
+  const picked=ul.querySelectorAll('input:checked').length;
+  $(cfg.del).disabled=busy||!owner||!picked;
+  $(cfg.count).textContent=available+'件が選択可能／選択中：'+picked+'件';
+ }
+}
+function historyPicked(type){return [...document.querySelectorAll(type==='customer'?'.registration-select:checked':'.sale-select:checked')].map(x=>x.value);}
+for(const [type,sel,del] of [['customer','select-customers','delete-customers'],['sale','select-sales','delete-sales']]){
+ $(sel).addEventListener('click',()=>{
+  const cl=type==='customer'?'.registration-select:not(:disabled)':'.sale-select:not(:disabled)';
+  const all=[...document.querySelectorAll(cl)];const isAll=all.every(cb=>cb.checked);
+  all.forEach(cb=>cb.checked=!isAll);
+  refreshHistorySelection();
+ });
+ $(del).addEventListener('click',()=>deleteHistory(type));
+}
+function refreshHistorySelection(){
+ for(const [type,del,count] of [['customer','delete-customers','customer-selection-count'],['sale','delete-sales','sales-selection-count']]){
+  const available=type==='customer'?selectedCustomers.length:selectedSales.filter(x=>['handedOff','cancelled'].includes(x.status)).length;
+  const picked=historyPicked(type).length;
+  $(del).disabled=busy||!owner||picked===0;
+  $(count).textContent=available+'件が選択可能／選択中：'+picked+'件';
+ }
+}
+$('customer-history').addEventListener('change',refreshHistorySelection);
+$('sales-history').addEventListener('change',refreshHistorySelection);
+async function deleteHistory(type){
+ if(busy||!owner||!brand)return;
+ const ids=historyPicked(type);if(!ids.length)return;
+ const isCustomer=type==='customer';
+ if(!isCustomer){
+  const valid=new Set(selectedSales.filter(x=>['handedOff','cancelled'].includes(x.status)).map(x=>x.orderId));
+  if(ids.some(id=>!valid.has(id))){message('進行中の販売記録は削除できません。',true);return;}
+ }
+ const description=isCustomer?'登録者・配送先データ':'販売履歴';
+ const warning=isCustomer?'未対応注文の本人確認・配送情報登録ができなくなる場合があります。':'売上履歴から消えます。在庫は元に戻りません。QRの公開確認情報は再利用防止のため残ります。';
+ if(!confirm(description+' '+ids.length+'件をFirebaseから完全に削除します。\n'+warning+'\n復元できません。続けますか？'))return;
+ const phrase=ids.length+'件削除';if(prompt('誤操作防止：'+phrase+' と入力してください。')!==phrase)return;
+ lock(true);let done=0;const errors=[];
+ try{
+  for(const id of ids){
+   try{
+    await deleteDoc(isCustomer?doc(db,'customerOrders',brand.slug,'orders',id):doc(db,'brands',owner.uid,'scannedOrders',id));
+    done++;
+    if(isCustomer){customers=customers.filter(x=>x.orderId!==id);selectedCustomers=selectedCustomers.filter(x=>x.orderId!==id);}
+    else{sales=sales.filter(x=>x.orderId!==id);selectedSales=selectedSales.filter(x=>x.orderId!==id);}
+   }catch(err){errors.push(id+'：'+(err.message||err));}
+  }
+  refreshCounts();
+  message(description+' '+done+'件を削除しました。'+(errors.length?'\n失敗：'+errors.join('\n'):'')+'\n期間中の集計とCSV出力に反映されています。',errors.length>0);
+ }finally{lock(false);refreshCounts();}
+}
 function refreshCounts(){
  const handed=selectedSales.filter(x=>x.status==='handedOff');
  const delivery=handed.filter(x=>x.hasPreorder&&customers.some(y=>y.orderId===x.orderId&&y.deliverySubmitted===true));
  $('count').textContent=`登録者：${selectedCustomers.filter(c=>c.registered===true).length}件 ／ 完了注文：${handed.length}件 ／ 配送対象：${delivery.length}件`;
  const ul=$('deletable');ul.replaceChildren();$('select-delivery').disabled=!delivery.length;$('delete-selected').disabled=!delivery.length;
- if(!delivery.length){const li=document.createElement('li');li.textContent='削除できる配送情報はありません。';ul.append(li);return;}
+ if(!delivery.length){const li=document.createElement('li');li.textContent='削除できる配送情報はありません。';ul.append(li);renderHistory();return;}
  for(const sale of delivery){const customer=selectedCustomers.find(c=>c.orderId===sale.orderId);const li=document.createElement('li');const span=document.createElement('span');span.textContent=sale.orderId+'｜'+(customer?.shipping?.name||customer?.buyerName||'')+'（要：発送済み確認）';
  const check=document.createElement('input');check.type='checkbox';check.className='delivery-select';check.value=sale.orderId;check.setAttribute('aria-label',sale.orderId+' を一括削除対象に選択');check.style.width='18px';check.style.height='18px';li.append(check);
  const btn=document.createElement('button');btn.type='button';btn.className='delete';btn.textContent='個人情報を削除';
@@ -47,6 +128,7 @@ function refreshCounts(){
   const typed=prompt('誤削除防止のため「削除」と入力してください。');if(typed!=='削除')return;
   lock(true);try{await deleteDoc(doc(db,'customerOrders',brand.slug,'orders',sale.orderId));message('個人情報を削除しました。CSVデータを再取得してください。');customers=customers.filter(x=>x.orderId!==sale.orderId);selectedCustomers=selectedCustomers.filter(x=>x.orderId!==sale.orderId);refreshCounts();}catch(err){console.error(err);message('削除に失敗しました：'+(err.message||err),true);}finally{lock(false);}
  };li.append(span,btn);ul.append(li);}
+ renderHistory();
 }
 $('select-delivery').onclick=()=>{const checks=[...document.querySelectorAll('.delivery-select')];const all=checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);};
 $('delete-selected').onclick=async()=>{

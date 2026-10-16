@@ -11,6 +11,9 @@
     active:    { main:'#A9472B', sub:'#FFF2E2', text:'#3C2E25' },
     lavender: { main:'#765E9A', sub:'#F3EFF9', text:'#33283F' },
     sand:     { main:'#806544', sub:'#F9F4E8', text:'#3D3325' },
+    peach:    { main:'#A85870', sub:'#FFF0F0', text:'#48313D' },
+    mint:     { main:'#307C75', sub:'#EAF8F4', text:'#1D4542' },
+    slate:    { main:'#385773', sub:'#EDF3F8', text:'#253847' },
   };
   const ICONS = {
     bag: '<svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 8h16l-1 13H5L4 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>',
