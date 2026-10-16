@@ -7,6 +7,29 @@ const firebase=window.MEB_FIREBASE_CONFIG||{};
 let user=null,brand=null,db=null,scanner=null,cameraStarting=false,working=false,candidate=null,stage='scan';
 const yen=n=>'¥'+Math.round(n).toLocaleString('ja-JP');
 const loginUrl=new URL('./login.html',location.href).href;
+
+// Scanner remains usable if the optional shared shipping helper has not yet
+// been fetched (for example, a GitHub Pages deployment/cache race).
+// The fallback implements the same prefecture and shipping rules. It NEVER
+// skips final amount or order signature checks.
+const PREFECTURES=('北海道 青森県 岩手県 宮城県 秋田県 山形県 福島県 茨城県 栃木県 群馬県 埼玉県 千葉県 東京都 神奈川県 新潟県 富山県 石川県 福井県 山梨県 長野県 岐阜県 静岡県 愛知県 三重県 滋賀県 京都府 大阪府 兵庫県 奈良県 和歌山県 鳥取県 島根県 岡山県 広島県 山口県 徳島県 香川県 愛媛県 高知県 福岡県 佐賀県 長崎県 熊本県 大分県 宮崎県 鹿児島県 沖縄県').split(' ');
+const shippingTools=window.MEB_SHIPPING||{
+  validPref:pref=>PREFECTURES.includes(pref),
+  calc:(shipping,base,hasPreorder,prefecture='')=>{
+    const sh=shipping||{};
+    if(!hasPreorder||sh.mode==='all')return 0;
+    const limit=Number(sh.threshold)||0;
+    if(limit>0&&base>=limit)return 0;
+    if(sh.mode==='prefecture'){
+      if(!PREFECTURES.includes(prefecture))return null;
+      const n=sh.rates?.[prefecture];
+      return Number.isInteger(n)&&n>=0&&n<=100000?n:null;
+    }
+    if(sh.mode==='threshold')return Number(sh.charge)||0;
+    return 0;
+  }
+};
+
 function say(message,isError=false){$('result').textContent=message;$('result').className=isError?'error':'good';}
 function display(stageName){
  stage=stageName;
@@ -77,11 +100,11 @@ function calculate(parsed,catalog,settings={}){
  const shipMode=['threshold','prefecture'].includes(sh.mode)?sh.mode:'all';
  const shipThreshold=shipMode!=='all'?Math.max(0,Math.floor(Number(sh.threshold)||0)):0;
  const shippingPrefecture=shipMode==='prefecture'&&hasPreorder?String(raw.f||''):'';
- if(shipMode==='prefecture'&&hasPreorder&&!window.MEB_SHIPPING.validPref(shippingPrefecture))throw Error('送料計算用の都道府県が未選択です。お客様にQRを作り直していただいてください。');
+ if(shipMode==='prefecture'&&hasPreorder&&!shippingTools.validPref(shippingPrefecture))throw Error('送料計算用の都道府県が未選択です。お客様にQRを作り直していただいてください。');
  const shipCharge=shipMode==='prefecture'&&hasPreorder?sh.rates?.[shippingPrefecture]:shipMode==='threshold'?Math.max(0,Math.floor(Number(sh.charge)||0)):0;
- if(!Number.isInteger(shipCharge)||shipThreshold>100000000||shipCharge>100000||shipCharge<0)throw Error('都道府県別送料の設定を確認してください。');
- const shippingFee=window.MEB_SHIPPING.calc(sh,base,hasPreorder,shippingPrefecture);
- if(shippingFee===null)throw Error('送料計算の都道府県が不足しています。');
+ if(!Number.isInteger(shipCharge)||shipThreshold>100000000||shipCharge>100000||shipCharge<0)throw Error(shipMode==='prefecture'&&hasPreorder?'送料設定で「'+shippingPrefecture+'」の料金が未設定です。管理画面の設定を確認してください。':'送料設定の金額が不正です。');
+ const shippingFee=shippingTools.calc(sh,base,hasPreorder,shippingPrefecture);
+ if(shippingFee===null)throw Error('都道府県・送料が確定していません。送料設定を確認し、お客様に新しいQRを発行していただいてください。');
  const finalAmount=base-reduction+shippingFee;
  if(!Number.isInteger(raw.h)||raw.h!==shippingFee)throw Error('QRの送料が最新設定と一致しません。購入QRを作り直してください。');
  if(!Number.isInteger(raw.a)||raw.s!==base||raw.p!==percent||raw.d!==reduction||raw.a!==finalAmount)throw Error('QRの金額と公開中の割引設定が一致しません。QRを再発行してください。');
@@ -283,7 +306,7 @@ async function reserveAtScan(parsed,quote){
 }
 async function loadQr(text){
  if(!ready()||stage!=='scan')return;
- working=true;$('camera-start').disabled=true;
+ working=true;$('camera-start').disabled=true;$('manual-scan').disabled=true;
  say('注文内容を検証し、在庫を確保しています…');
  try{
   const parsed=parseOrder(text),refs=refsForOrder(parsed.raw);
@@ -292,8 +315,16 @@ async function loadQr(text){
   const quote=calculate(parsed,snap.data(),settingSnap.exists()&&settingSnap.data().brandId===user.uid?settingSnap.data():{});
   const result=await reserveAtScan(parsed,quote);
   acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,bundles:result.data.bundles||[],discountMode:result.data.discountMode,discountValue:result.data.discountValue,discountMinSpend:result.data.discountMinSpend,discountRegistered:result.data.discountRegistered,shippingFee:result.data.shippingFee,shippingMode:result.data.shippingMode,shippingThreshold:result.data.shippingThreshold,shippingCharge:result.data.shippingCharge,shippingPrefecture:result.data.shippingPrefecture,hasPreorder:result.data.hasPreorder,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
- }catch(err){console.error(err);say(err.message||'在庫確保に失敗しました。',true);candidate=null;}
- finally{working=false;document.querySelectorAll('.cancel-line').forEach(b=>b.disabled=false);if(stage==='scan'&&user){$('camera-start').disabled=false;}}
+ }catch(err){
+  console.error('MY EXPO BAG QR確認／在庫確保エラー',err);
+  const code=String(err?.code||'');
+  const friendly=code==='permission-denied'?'Firebaseの権限により在庫確保が拒否されました。ルールとブランド管理権限を確認してください。':
+    code==='unavailable'?'Firebaseへの接続に失敗しました。通信状況を確認し、再度読み取ってください。':
+    code==='failed-precondition'?'在庫情報または注文状態が更新されています。新しいQRで再度お試しください。':
+    (err?.message||'注文の確認または在庫確保に失敗しました。');
+  say('QRは認識しましたが、注文を確定できませんでした。\n'+friendly,true);candidate=null;
+ }
+ finally{working=false;document.querySelectorAll('.cancel-line').forEach(b=>b.disabled=false);if(stage==='scan'&&user){$('camera-start').disabled=false;$('manual-scan').disabled=false;}}
 }
 async function cancelLine(key,all=false){
  if(!ready()||!candidate||!['review','prepared'].includes(stage))return;
@@ -389,34 +420,49 @@ async function stopCamera(){
  if(active){try{await active.stop();}catch{}try{active.clear();}catch{}}
  $('camera-stop').disabled=true;
 }
+
+let scannerLibraryLoading=null;
+async function ensureScannerLibrary(){
+ if(window.Html5Qrcode)return true;
+ if(!scannerLibraryLoading){
+  scannerLibraryLoading=new Promise((resolve,reject)=>{
+   const tag=document.createElement('script');
+   tag.src='https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+   tag.async=true;
+   tag.onload=()=>window.Html5Qrcode?resolve(true):reject(Error('QRカメラプログラムを読み込めませんでした。'));
+   tag.onerror=()=>reject(Error('QRカメラプログラムを取得できません。インターネット接続をご確認ください。'));
+   document.head.appendChild(tag);
+  }).catch(err=>{scannerLibraryLoading=null;throw err;});
+ }
+ return scannerLibraryLoading;
+}
 async function startCamera(){
  if(!ready()||stage!=='scan'||cameraStarting)return;
- if(!window.Html5Qrcode){say('QR読み取りライブラリを読み込めませんでした。通信環境を確認して、画面を再読み込みしてください。',true);return;}
  cameraStarting=true;$('camera-start').disabled=true;
  try{
-  await stopCamera();
-  // Dense MEB2 order QRs were difficult to decode inside the old 225px crop.
-  // Scan the entire video frame so the decoder receives the full QR, including its quiet zone.
-  const instance=new window.Html5Qrcode('reader');
-  scanner=instance;
-  await instance.start({facingMode:'environment'},{fps:10,disableFlip:false},async text=>{
-   if(working||stage!=='scan'||scanner!==instance)return;
-   working=true;
-   try{await stopCamera();}finally{working=false;}
-   
+  await ensureScannerLibrary();
+  await stopCamera();scanner=new window.Html5Qrcode('reader');
+  await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:225,height:225}},async text=>{
+   if(working||stage!=='scan')return;
+   working=true;await stopCamera();working=false;
+   $('qr-input').value=text;
    await loadQr(text);
   },()=>{});
-  $('camera-stop').disabled=false;
-  say('読み取り中です。QR全体を画面に入れ、ピントが合う位置で少し静止してください。');
- }catch(err){console.error(err);say('カメラを起動できません。iPhoneのカメラ権限をご確認ください。',true);await stopCamera();}
+  $('camera-stop').disabled=false;say('QRをカメラ枠に合わせてください。');
+ }catch(err){console.error('QRカメラ起動エラー',err);
+   const msg=err?.name==='NotAllowedError'?'カメラの利用が許可されていません。ブラウザのカメラ権限を確認してください。':
+     err?.name==='NotFoundError'?'カメラが見つかりません。カメラ搭載端末でお試しください。':
+     err?.message||'カメラを起動できません。カメラの権限と通信状況をご確認ください。';
+   say('カメラを起動できませんでした。\n'+msg,true);await stopCamera();}
  finally{cameraStarting=false;if(stage==='scan'&&user)$('camera-start').disabled=false;}
 }
-function reset(){candidate=null;$('customer-checked').checked=false;$('prepare').disabled=true;display('scan');say('QRの読み取り待ちです。');$('camera-start').disabled=!user;}
+function reset(){candidate=null;$('qr-input').value='';$('customer-checked').checked=false;$('prepare').disabled=true;display('scan');say('QRの読み取り待ちです。');$('camera-start').disabled=!user;$('manual-scan').disabled=!user;}
 document.querySelector('header a[href]').addEventListener('click',event=>{
  if(candidate?.status==='reserved'&&['review','prepared'].includes(stage)){event.preventDefault();window.alert('この注文は在庫確保済みです。管理画面へ戻る前に、お渡しを完了するか、残りの商品をすべて取り消してください。');}
 });
 $('camera-start').addEventListener('click',startCamera);
 $('camera-stop').addEventListener('click',stopCamera);
+$('manual-scan').addEventListener('click',async()=>{await stopCamera();await loadQr($('qr-input').value);});
 $('customer-checked').addEventListener('change',()=>{$('prepare').disabled=!$('customer-checked').checked||working;});
 $('prepare').addEventListener('click',()=>{if(ready()&&stage==='review'&&candidate&&$('customer-checked').checked)prepView();});
 document.addEventListener('click',event=>{const b=event.target.closest('[data-cancel-key]');if(b)cancelLine(b.dataset.cancelKey);});
@@ -434,7 +480,7 @@ else{
   try{
    const s=await getDoc(doc(db,'brands',u.uid));if(!s.exists()||s.data().ownerUid!==u.uid)throw Error('ブランド管理権限がありません。');
    user=u;brand=s.data();$('auth-state').textContent='ログイン中：'+brand.displayName;
-   $('camera-start').disabled=false;
+   $('camera-start').disabled=false;$('manual-scan').disabled=false;
   }catch(err){console.error(err);say('ブランド情報を確認できませんでした。',true);}
  });
 }
