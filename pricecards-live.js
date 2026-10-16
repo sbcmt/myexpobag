@@ -10,10 +10,10 @@ let lines=[],brandName='',brandSlug='';
 const out=$('paper-output');
 const yen=n=>'¥'+Math.round(Number(n)||0).toLocaleString('ja-JP');
 function showMessage(s){out.replaceChildren();const p=document.createElement('p');p.className='notice';p.textContent=s;out.append(p);}
-function productUrl(id,variant=''){
+function productUrl(id){
  const u=new URL('./index.html',location.href);
  u.searchParams.set('brand',brandSlug);
- u.hash='#product/'+encodeURIComponent(id)+(variant?'?variant='+encodeURIComponent(variant):'');
+ u.hash='#product/'+encodeURIComponent(id);
  return u.href;
 }
 function makeQr(url){
@@ -24,30 +24,55 @@ function makeQr(url){
  ctx.fillStyle='#111';for(let r=0;r<n;r++)for(let col=0;col<n;col++)if(qr.isDark(r,col))ctx.fillRect((col+border)*pixel,(r+border)*pixel,pixel,pixel);
  return c.toDataURL('image/png');
 }
-function cardFor({product:p,variant:v,published}){
+// Mirror customer app.js: variants have their own regular/event prices.
+function priceFor(product,variant){
+ const regular=Number.isFinite(variant?.price)?variant.price:product.price;
+ const event=Number.isFinite(variant?.eventPrice)?variant.eventPrice:product.eventPrice;
+ return Number.isFinite(event)&&event>=0&&event<regular?event:regular;
+}
+function effectiveReservation(product,variant){
+ return typeof variant?.preorder==='boolean'?variant.preorder:product.preorder===true;
+}
+function cardFor({product,published}){
  const el=document.createElement('article');el.className='pricecard '+style+(published?'':' unpublished');
+ const variants=Array.isArray(product.variants)&&product.variants.length?product.variants:[];
  const qr=document.createElement('div');qr.className='qr-area';
- const img=document.createElement('img');img.src=makeQr(productUrl(p.id,v.code||''));img.alt=p.name+(v.name?' '+v.name:'')+'の商品ページQR';
+ const img=document.createElement('img');img.src=makeQr(productUrl(product.id));img.alt=product.name+'の商品ページQR';
  const note=document.createElement('div');note.className='scan-note';note.textContent='商品ページQR';qr.append(img,note);
  const info=document.createElement('div');info.className='information';
  const brand=document.createElement('div');brand.className='brand';brand.textContent=brandName;
- const name=document.createElement('div');name.className='item';name.textContent=p.name;
+ const titleWrap=document.createElement('div');titleWrap.className='title-stack';
+ if(product.preorder===true){const badge=document.createElement('span');badge.className='reservation-badge product-reservation';badge.textContent='受注予約';titleWrap.append(badge);}
+ const name=document.createElement('div');name.className='item';name.textContent=product.name;titleWrap.append(name);
+ const candidatePrices=(variants.length?variants:[null]).map(v=>priceFor(product,v));
+ const minimum=Math.min(...candidatePrices),different=new Set(candidatePrices).size>1;
  const prices=document.createElement('div');prices.className='price';
- const regular=Number.isFinite(v.price)?v.price:p.price;
- const eventPrice=Number.isFinite(v.eventPrice)?v.eventPrice:p.eventPrice;
- const sale=Number.isFinite(eventPrice)&&eventPrice>=0&&eventPrice<regular;
- if(sale){const crossed=document.createElement('div');crossed.className='normal strike';crossed.textContent='通常 '+yen(regular);prices.append(crossed);}
- const now=document.createElement('div');now.className='now'+(sale?' event':'');
- if(sale){const label=document.createElement('small');label.textContent='展示会';now.append(label);}now.append(document.createTextNode(yen(sale?eventPrice:regular)));prices.append(now);
- info.append(brand,name,prices);
- if(v.name){const detail=document.createElement('div');detail.className='meta';detail.textContent='種類：'+v.name;detail.style.marginTop='auto';info.append(detail);}
+ const now=document.createElement('div');now.className='now';now.textContent=yen(minimum)+(different?'～':'');prices.append(now);
+ info.append(brand,titleWrap,prices);
+ if(variants.length){
+  const names=document.createElement('div');names.className='variant-list';
+  if(variants.length>5)names.classList.add('dense');
+  if(variants.length>9)names.classList.add('very-dense');
+  for(const variant of variants){
+   const chip=document.createElement('span');chip.className='variant-name';
+   chip.append(document.createTextNode(variant.name||variant.code||'種類未設定'));
+   // Label reservation only for the variants that are actually preorders.
+   // When every variant is a preorder due to the parent-level setting, the
+   // prominent badge above the title already covers it.
+   if(effectiveReservation(product,variant)&&product.preorder!==true){
+    const badge=document.createElement('span');badge.className='reservation-badge variant-reservation';badge.textContent='受注予約';chip.append(badge);
+   }
+   names.append(chip);
+  }
+  info.append(names);
+ }
  el.append(qr,info);return el;
 }
 function render(){out.replaceChildren();if(!lines.length){showMessage('該当する登録商品がありません。管理画面から選び直してください。');return;}
  for(let i=0;i<lines.length;i+=10){const paper=document.createElement('div');paper.className='paper';const sheet=document.createElement('div');sheet.className='sheet';lines.slice(i,i+10).forEach(x=>sheet.append(cardFor(x)));paper.append(sheet);out.append(paper);}
  for(const t of ['white','accent'])$(t).classList.toggle('active',t===style);
  const n=lines.filter(x=>!x.published).length;
- document.querySelector('.notice').textContent=n?`⚠ 未公開のカードが${n}枚あります。商品を「お客様ページに反映」したあとに掲示してください。`:'登録済み商品・バリエーションの正式QRです。印刷時はA4・倍率100%・余白なしを確認してください。';
+ document.querySelector('.notice').textContent=n?`⚠ 未公開のカードが${n}枚あります。商品を「お客様ページに反映」したあとに掲示してください。`:'登録済み商品IDごとに1枚のPRICE CARDです。印刷時はA4・倍率100%・余白なしを確認してください。';
 }
 for(const t of ['white','accent'])$(t).addEventListener('click',()=>{style=t;render();});
 $('print').addEventListener('click',()=>window.print());
@@ -63,10 +88,7 @@ else{
    const pubIds=new Set((pub.data()?.products||[]).map(p=>p.id));
    const all=drafts.docs.map(s=>s.data()).filter(p=>p&&typeof p.id==='string'&&typeof p.name==='string');
    const selected=ids.size?all.filter(p=>ids.has(p.id)):all;
-   lines=selected.flatMap(p=>{
-    const variants=Array.isArray(p.variants)&&p.variants.length?p.variants:[{code:'',name:''}];
-    return variants.map(v=>({product:p,variant:v,published:pubIds.has(p.id)}));
-   });
+   lines=selected.map(product=>({product,published:pubIds.has(product.id)}));
    render();
   }catch(e){console.error(e);showMessage('商品情報の取得に失敗しました：'+(e.message||'通信エラー'));}
  });

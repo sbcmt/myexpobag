@@ -26,7 +26,7 @@ if(['apiKey','projectId','appId'].every(k=>typeof cfg[k]==='string'&&cfg[k].trim
  });
 }
 
-// Independently export real item/variant QR images, not the old demonstration URLs.
+// Export one public product QR per product ID, not the old demonstration URLs.
 const exportButton=document.getElementById('download-product-qr');
 const status=document.getElementById('product-qr-export-status');
 const safeName=s=>String(s||'').replace(/[^A-Za-z0-9_-]/g,'_').slice(0,80);
@@ -61,14 +61,10 @@ exportButton?.addEventListener('click',async()=>{
   const logo=await getImage('./assets/pop-qr-logo.png');
   const zip=new window.JSZip();let done=0;
   for(const p of loadedProducts.filter(x=>selected.has(x.id))){
-   const variants=Array.isArray(p.variants)&&p.variants.length?p.variants:[{code:''}];
-   for(const v of variants){
-    const url=itemUrl(p.id,v.code||'');
-    const canvas=qrCanvas(url,logo);
-    zip.file('item_'+safeName(p.id)+(v.code?'_'+safeName(v.code):'')+'.png',await toBlob(canvas));
-    canvas.width=0;canvas.height=0;
-    status.textContent=`QR作成中：${++done}件`;
-   }
+   const canvas=qrCanvas(itemUrl(p.id),logo);
+   zip.file('item_'+safeName(p.id)+'.png',await toBlob(canvas));
+   canvas.width=0;canvas.height=0;
+   status.textContent=`商品QR作成中：${++done}件`;
   }
   if(!done)throw Error('選択した商品のQRがありません。');
   save(await zip.generateAsync({type:'blob'}),'MY_EXPO_BAG_'+safeName(currentSlug)+'_product_QR.zip');

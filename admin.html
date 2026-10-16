@@ -83,7 +83,7 @@
     </section>
     <section class="card navpanel" id="product-qr-panel" hidden aria-label="商品QRダウンロード見本">
       <div class="panel-top"><h2>商品QRダウンロード</h2><button type="button" class="small-back" id="product-back">← 戻る</button></div>
-      <p class="muted">登録した商品を読み込み、商品・バリエーション単位のQR付きプライスカードを作成します。未公開商品には印刷前に警告を表示します。</p>
+      <p class="muted">登録した商品を読み込み、商品ID単位のQR付きプライスカードを作成します。未公開商品には印刷前に警告を表示します。</p>
       <label class="select-all"><input type="checkbox" id="product-check-all"> <strong>ALL｜すべて選択</strong></label>
       <div id="products-selection-list" class="product-selection"></div>
       <p class="muted" id="product-selected-count" aria-live="polite">選択数：0商品</p>
@@ -93,7 +93,7 @@
       </div>
       <button type="button" class="preview-action" id="download-product-qr" disabled style="width:100%;margin-top:10px;background:#146076">選択した商品QRをZIPで保存</button>
       <p class="muted" id="product-qr-export-status" role="status"></p>
-      <p class="muted">A4に10枚（2列×5段）、1枚は91×55mm。選択した商品のバリエーションもそれぞれQRを作成します。公開前の商品はお客様ページで表示できないため、公開してから掲示してください。</p>
+      <p class="muted">A4に10枚（2列×5段）、1枚は91×55mm。商品IDごとに1枚、1つのQRを作成します。公開前の商品はお客様ページで表示できないため、公開してから掲示してください。</p>
     </section>
     <section class="card" aria-label="QR読み取り">
       <h2>購入QR読み取り</h2>
@@ -172,7 +172,7 @@
   <script src="./qr.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script type="module" src="./admin-auth.js"></script>
-  <script type="module" src="./admin-product-qr.js?asset=20261016-real-product-qr-v104"></script>
+  <script type="module" src="./admin-product-qr.js?asset=20261016-real-product-qr-v109"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body>
 </html>

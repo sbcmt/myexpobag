@@ -178,7 +178,7 @@ async function reload(){if(!owner||busy)return;
   sales=allSales.filter(x=>x.brandId===owner.uid);
   selectedCustomers=[...customers];
   selectedSales=[...sales];
-  message(`サーバーから全期間の履歴を取得：登録・配送情報 ${customers.length}件／販売履歴 ${sales.length}件（お渡し済み ${sales.filter(x=>x.status==='handedOff').length}件、取消済み ${sales.filter(x=>x.status==='cancelled').length}件、確保中 ${sales.filter(x=>x.status==='reserved').length}件）。\n※登録者データを消しても販売履歴は別保存先のため残ります。両方消す場合は各履歴を削除してください。`);
+  message(`サーバーから全期間の履歴を取得：登録・配送情報 ${customers.length}件／販売履歴 ${sales.length}件（お渡し済み ${sales.filter(x=>x.status==='handedOff').length}件、取消済み ${sales.filter(x=>x.status==='cancelled').length}件、確保中 ${sales.filter(x=>x.status==='reserved').length}件）。\n※販売履歴・登録情報は別保存先です。注文QRの再利用防止用の公開確認データはセキュリティのため削除対象外です。`);
   refreshCounts();
   return true;
  }catch(err){console.error(err);message('履歴の取得に失敗しました。認証・Firestoreルールを確認してください：'+(err.message||err),true);return false;}finally{lock(false);}
@@ -187,14 +187,19 @@ $('load').onclick=reload;
 $('clear-test-history').onclick=async()=>{
  if(busy){clearMessage('履歴の取得または操作中です。完了後にもう一度押してください。',true);return;}
  if(!owner||!brand){clearMessage('管理者としてログインし、履歴を読み込んでください。',true);return;}
- clearMessage('サーバーの最新データを確認中…');
+ clearMessage('パスワードを確認してください。');
+ try{
+  if(!await requirePasswordBeforeDelete('販売履歴と登録情報の一括クリア')){
+   clearMessage('削除をキャンセルしました。');return;
+  }
+ }catch(error){clearMessage(error.message,true);return;}
+ clearMessage('認証完了。サーバーの最新データを確認中…');
  if(!await reload()){clearMessage('最新の履歴を確認できなかったため、削除は実行していません。',true);return;}
  if(sales.some(s=>s.status==='reserved')){clearMessage('在庫確保中の注文が残っています。先にお渡し完了または取消を行ってください。',true);return;}
  const saleIds=[...new Set(sales.filter(s=>['handedOff','cancelled'].includes(s.status)).map(s=>s.orderId))];
  const customerIds=[...new Set(customers.map(c=>c.orderId))];
  if(!saleIds.length&&!customerIds.length){clearMessage('削除対象の販売履歴・登録情報は0件です。');return;}
  if(!confirm('販売履歴 '+saleIds.length+'件と登録者・配送先 '+customerIds.length+'件を削除します。\n元に戻せず、在庫も復元されません。\n必要なCSVを保存してから進めてください。続けますか？'))return;
- try{if(!await requirePasswordBeforeDelete('販売履歴と登録者情報の一括クリア')){clearMessage('削除をキャンセルしました。');return;}}catch(error){clearMessage(error.message,true);return;}
  lock(true);let saleDeleted=0,customerDeleted=0;const errors=[];
  try{
   // Sales and customer records are separate collections. Clear both, never public QR replay markers.

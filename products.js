@@ -529,47 +529,52 @@ async function importProducts(){
 async function publishCatalog({automatic=false,allowBusy=false}={}){
  if((busy&&!allowBusy)||!user||!brand)return false;
  const button=$('publish-catalog'),message=$('publish-status');
+ let publicationStage='準備';
  if(!automatic&&!confirm('表示対象の商品をお客様ページに反映しますか？ 非表示の商品は公開しません。'))return false;
  setBusy(true);message.hidden=false;message.className='status';
  try{
   // Read current server data, not a potentially stale form or previous page view.
+  publicationStage='商品の読込';
   const [drafts,catSnapshot,oldSnapshot]=await Promise.all([
    getDocsFromServer(coll()),getDocFromServer(catRef()),getDocFromServer(doc(db,'publishedCatalogs',brand.slug))
   ]);
   const source=drafts.docs.map(x=>x.data());
-  for(const p of source.filter(x=>x.active!==false && ((p.variants||[]).length?(p.variants||[]).some(v=>typeof v.preorder==='boolean'?v.preorder:p.preorder===true):p.preorder===true)))if(!Number.isInteger(p.releaseMonth)||p.releaseMonth<1||p.releaseMonth>12||!['上旬','中旬','下旬'].includes(p.releasePeriod))throw Error('予約商品「'+p.name+'」（'+p.id+'）に発売予定月・時期がありません。商品を編集して保存してください。');
-  const visible=source.filter(p=>p.active!==false && /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(p.id));
-  const ids=new Set(visible.map(p=>p.id));
+  for(const productRecord of source.filter(productRecord=>productRecord.active!==false && ((productRecord.variants||[]).length?(productRecord.variants||[]).some(v=>typeof v.preorder==='boolean'?v.preorder:productRecord.preorder===true):productRecord.preorder===true)))if(!Number.isInteger(productRecord.releaseMonth)||productRecord.releaseMonth<1||productRecord.releaseMonth>12||!['上旬','中旬','下旬'].includes(productRecord.releasePeriod))throw Error('予約商品「'+productRecord.name+'」（'+productRecord.id+'）に発売予定月・時期がありません。商品を編集して保存してください。');
+  const visible=source.filter(productRecord=>productRecord.active!==false && /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(productRecord.id));
+  const ids=new Set(visible.map(productRecord=>productRecord.id));
   const categoryNames=catSnapshot.exists()&&Array.isArray(catSnapshot.data().categories)
     ?catSnapshot.data().categories.filter(v=>typeof v==='string') : [];
-  for(const p of visible)if(!categoryNames.includes(p.categoryName))categoryNames.push(p.categoryName);
+  for(const productRecord of visible)if(!categoryNames.includes(productRecord.categoryName))categoryNames.push(productRecord.categoryName);
   const categoriesPublic=categoryNames.map(n=>({id:n,name:n}));
-  const exposed=visible.map(p=>({
-   id:p.id,name:p.name,categoryId:p.categoryName,price:p.price,
-   eventPrice:p.eventPrice??null,preorder:p.preorder===true,releaseMonth:p.releaseMonth??null,releasePeriod:p.releasePeriod||'',stock:(p.variants||[]).length?null:(p.stock??null),
-   variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null,stock:v.stock??null,preorder:typeof v.preorder==='boolean'?v.preorder:null}))
+  publicationStage='公開用データ作成';
+  const exposed=visible.map(productRecord=>({
+   id:productRecord.id,name:productRecord.name,categoryId:productRecord.categoryName,price:productRecord.price,
+   eventPrice:productRecord.eventPrice??null,preorder:productRecord.preorder===true,releaseMonth:productRecord.releaseMonth??null,releasePeriod:productRecord.releasePeriod||'',stock:(productRecord.variants||[]).length?null:(productRecord.stock??null),
+   variants:(productRecord.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null,stock:v.stock??null,preorder:typeof v.preorder==='boolean'?v.preorder:null}))
   }));
   // Each product can propose up to 3 combinations. Keep the best discount
   // once when both sides define the same pair. Not an ordered purchase.
   const pairs=new Map();
-  for(const p of visible){
-   const combos=Array.isArray(p.combos)?p.combos:(p.comboProductId?[{productId:p.comboProductId,discount:p.comboDiscount||0}]:[]);
+  for(const productRecord of visible){
+   const combos=Array.isArray(productRecord.combos)?productRecord.combos:(productRecord.comboProductId?[{productId:productRecord.comboProductId,discount:productRecord.comboDiscount||0}]:[]);
    for(const c of combos.slice(0,3)){
-    if(!ids.has(c.productId)||c.productId===p.id)continue;
-    const pair=[p.id,c.productId].sort();const key=pair.join('::');
+    if(!ids.has(c.productId)||c.productId===productRecord.id)continue;
+    const pair=[productRecord.id,c.productId].sort();const key=pair.join('::');
     const amount=Math.max(0,Math.floor(Number(c.discount)||0));
     const old=pairs.get(key);
     if(!old||amount>old.discountAmount)pairs.set(key,{id:'pair-'+pair.join('-'),name:'一緒にいかがですか？',productIds:pair,discountAmount:amount});
    }
   }
+  publicationStage='商品画像読込';
   const uploaded=[];
-  for(const p of visible){
-   const imageSnap=await getDocFromServer(imageRef(p.id));
+  for(const productRecord of visible){
+   const imageSnap=await getDocFromServer(imageRef(productRecord.id));
    if(imageSnap.exists()){
     const image=imageSnap.data().imageData;
-    if(typeof image==='string' && image.length<=109200 && /^data:image\/(webp|jpeg);base64,/.test(image))uploaded.push({id:p.id,image});
+    if(typeof image==='string' && image.length<=109200 && /^data:image\/(webp|jpeg);base64,/.test(image))uploaded.push({id:productRecord.id,image});
    }
   }
+  publicationStage='画像アップロード';
   message.textContent='商品画像を公開しています… '+uploaded.length+'枚';
   // Small chunks keep within Firestore's batch write limit at 300 products.
   for(let i=0;i<uploaded.length;i+=100){
@@ -580,6 +585,7 @@ async function publishCatalog({automatic=false,allowBusy=false}={}){
    );
    await batch.commit();
   }
+  publicationStage='商品カタログ公開';
   // Write the public index AFTER images, so a reader never sees a new
   // public product with an image pointer that has not been uploaded yet.
   await (async()=>{const batch=writeBatch(db);
@@ -588,27 +594,28 @@ async function publishCatalog({automatic=false,allowBusy=false}={}){
     bundles:[...pairs.values()],publishedImageIds:uploaded.map(x=>x.id),updatedAt:serverTimestamp()
    });await batch.commit();})();
   const previous=oldSnapshot.exists()&&Array.isArray(oldSnapshot.data().publishedImageIds)?oldSnapshot.data().publishedImageIds:[];
-  const removed=previous.filter(id=>!uploaded.some(p=>p.id===id));
+  const removed=previous.filter(id=>!uploaded.some(productRecord=>productRecord.id===id));
   for(let i=0;i<removed.length;i+=100){
    const batch=writeBatch(db);
    for(const id of removed.slice(i,i+100))batch.delete(doc(db,'publishedCatalogs',brand.slug,'images',id));
    await batch.commit();
   }
+  publicationStage='公開在庫同期';
   // Inventory is separate from the public catalog to avoid downloading large catalog documents per sale.
   // Publishing stock from the latest private draft prevents stale client overwrites.
   // Read private stock values INSIDE a transaction. A concurrent QR sale
   // retries the publish instead of accidentally restoring deducted inventory.
   await runTransaction(db,async tx=>{
-    const inventoryDocs=visible.map(p=>prodRef(p.id));
+    const inventoryDocs=visible.map(productRecord=>prodRef(productRecord.id));
     const stocks=await Promise.all(inventoryDocs.map(ref=>tx.get(ref)));
-    const next=Object.fromEntries(visible.map((p,i)=>[
-      p.id,stocks[i].exists()&&!(stocks[i].data().variants||[]).length?(stocks[i].data().stock??null):null
+    const next=Object.fromEntries(visible.map((productRecord,i)=>[
+      productRecord.id,stocks[i].exists()&&!(stocks[i].data().variants||[]).length?(stocks[i].data().stock??null):null
     ]));
     const variantQuantities={};
-    visible.forEach((p,i)=>{
-      const current=stocks[i].exists()?stocks[i].data():p;
+    visible.forEach((productRecord,i)=>{
+      const current=stocks[i].exists()?stocks[i].data():productRecord;
       for(const variant of current.variants||[]){
-        variantQuantities[p.id+'::'+variant.code]=variant.stock??null;
+        variantQuantities[productRecord.id+'::'+variant.code]=variant.stock??null;
       }
     });
     tx.set(doc(db,'publishedStock',brand.slug),{
@@ -620,7 +627,7 @@ async function publishCatalog({automatic=false,allowBusy=false}={}){
   return true;
  }catch(error){
   console.error('公開エラー',error);
-  message.textContent='公開できませんでした：'+(error.code==='permission-denied'?'Firestoreのルールを確認してください。':error.message||'通信や容量の制限をご確認ください。');
+  message.textContent='公開できませんでした（'+publicationStage+'）：'+(error.code==='permission-denied'?'Firestoreのルールを確認してください。':error.message||'通信や容量の制限をご確認ください。');
   message.className='status error';
   return false;
  }finally{if(!allowBusy)setBusy(false);}
