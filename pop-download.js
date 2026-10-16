@@ -5,7 +5,7 @@ const $=id=>document.getElementById(id);
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const pageSizes={A1:[594,841],A2:[420,594],A3:[297,420],A4:[210,297],A5:[148,210]};
 const state={db:null,user:null,brand:null,slug:'',brandName:'',customerUrl:'',template:null,logo:null,qrCanvas:null};
-const templatePath='./assets/pop-template-no-qr.png?v=20261016-inkcenter-v105';
+const templatePath='./assets/pop-template-no-qr.png?v=20261016-nocard-v106';
 const logoPath='./assets/pop-qr-logo.png?v=20261016-inkcenter-v105';
 function setStatus(msg,error=false,target='status'){const el=$(target); if(el){el.textContent=msg; el.className='status '+(error?'error':'good');}}
 function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('画像を読み込めません: '+src));img.src=src;});}
@@ -27,10 +27,10 @@ function renderQrCanvas(text,size=1080){
 function addLogoToQr(baseCanvas,logoImage){const c=document.createElement('canvas'); c.width=baseCanvas.width; c.height=baseCanvas.height; const ctx=c.getContext('2d'); ctx.drawImage(baseCanvas,0,0); const s=Math.round(c.width*0.18); const x=(c.width-s)/2, y=(c.height-s)/2; const radius=Math.round(s*0.18); ctx.fillStyle='#fff'; roundRect(ctx,x,y,s,s,radius); ctx.fill(); ctx.save(); roundRect(ctx,x,y,s,s,radius); ctx.clip(); ctx.drawImage(logoImage,x+Math.round(s*0.07),y+Math.round(s*0.07),Math.round(s*0.86),Math.round(s*0.86)); ctx.restore(); return c; }
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
 // Place the visible ink, not the outer QR bitmap, at the center of the
-// white rounded card in the approved QR-free image. No second white box.
+// central QR area after removing the old rounded frame. No extra white box.
 const POSTER_BASE_W=1054,POSTER_BASE_H=1492;
-const WHITE_CARD={left:346,top:638,right:677,bottom:978};
-const QR_INK_SIZE=247;
+const QR_TARGET={centerX:511.5,centerY:806}; // centered in the former QR area; no white frame exists
+const QR_INK_SIZE=280;
 let cachedInkBounds=null;
 function findQrInkBounds(qrCanvas){
  if(cachedInkBounds?.canvas===qrCanvas)return cachedInkBounds;
@@ -52,8 +52,8 @@ function posterQrGeometry(w,h,qrCanvas){
  const b=findQrInkBounds(qrCanvas);
  const inkWidth=b.maxX-b.minX+1,inkHeight=b.maxY-b.minY+1;
  const scale=QR_INK_SIZE/Math.max(inkWidth,inkHeight);
- const centerX=(WHITE_CARD.left+WHITE_CARD.right)/2;
- const centerY=(WHITE_CARD.top+WHITE_CARD.bottom)/2;
+ const centerX=QR_TARGET.centerX;
+ const centerY=QR_TARGET.centerY;
  const inkCenterX=(b.minX+b.maxX+1)/2;
  const inkCenterY=(b.minY+b.maxY+1)/2;
  return {x:(centerX-inkCenterX*scale)*w/POSTER_BASE_W,

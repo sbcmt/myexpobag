@@ -16,7 +16,8 @@ const imageRef=id=>doc(db,'brands',user.uid,'productImages',id);
 const trim=v=>String(v??'').trim();
 const yen=n=>'¥'+Number(n).toLocaleString('ja-JP');
 function status(message,error=false){const e=$('status');e.textContent=message;e.className='status'+(error?' error':'');e.hidden=false;}
-function setBusy(flag){busy=flag;for(const id of ['product-save','import-save','images-save','publish-catalog'])$(id).disabled=flag||imageProcessing||(id==='import-save'&&!importData)||(id==='images-save'&&!imagesReady.length);if(user)categoryOptions();}
+function refreshActionButtons(){for(const id of ['product-save','import-save','images-save','publish-catalog'])$(id).disabled=busy||imageProcessing||(id==='import-save'&&!importData)||(id==='images-save'&&!imagesReady.length);if(user)categoryOptions();}
+function setBusy(flag){busy=flag;refreshActionButtons();}
 function money(value,label,optional=false){
  const v=trim(value);if(optional&&v==='')return null;
  if(!/^\d{1,9}$/.test(v)||Number(v)>100000000)throw Error(label+'は0〜100,000,000の整数で入力してください。');
@@ -65,11 +66,11 @@ async function compressImage(file){
 async function onImageSelected(){
  const file=$('product-image').files?.[0],revision=++imageRevision;
  pendingImage=null;imagePreview('');if(!file){$('product-image-hint').textContent='未選択の場合、登録済み画像は変更しません。';return;}
- imageProcessing=true;setBusy(busy);$('product-image-hint').textContent='画像を自動圧縮しています…';
+ imageProcessing=true;refreshActionButtons();$('product-image-hint').textContent='画像を自動圧縮しています…';
  try{const data=await compressImage(file);if(revision!==imageRevision)return;
   pendingImage=data;imagePreview(data);$('product-image-hint').textContent='保存画像：約'+Math.ceil((data.length-data.indexOf(',')-1)*3/4/1024)+'KB ／ 「商品を保存」で画像も登録';
  }catch(err){if(revision===imageRevision){$('product-image-hint').textContent='画像は未選択です。';$('product-image').value='';status(err.message,true);}}
- finally{if(revision===imageRevision){imageProcessing=false;setBusy(busy);}}
+ finally{if(revision===imageRevision){imageProcessing=false;refreshActionButtons();}}
 }
 async function loadSavedImage(id,revision){
  $('product-image-hint').textContent='登録済み画像を確認しています…';imagePreview('');
@@ -86,7 +87,7 @@ async function imageBulkCheck(){
  clearImagesPreview();const archive=$('images-import').files?.[0];if(!archive)return;
  if(!window.JSZip){status('ZIP読み込みライブラリを読み込めません。インターネット接続を確認してください。',true);return;}
  if(!/\.zip$/i.test(archive.name)||archive.size>50*1024*1024){status('ZIPファイルは50MB以内にしてください。',true);return;}
- imageProcessing=true;setBusy(busy);$('images-count').textContent='ZIPの内容を確認中…';
+ imageProcessing=true;refreshActionButtons();$('images-count').textContent='ZIPの内容を確認中…';
  try{
   const zip=await window.JSZip.loadAsync(await archive.arrayBuffer());
   const entries=Object.values(zip.files).filter(entry=>!entry.dir&&!/(^|\/)__MACOSX\//.test(entry.name)&&!/(^|\/)\./.test(entry.name));
@@ -111,7 +112,7 @@ async function imageBulkCheck(){
   box.hidden=false;$('images-count').textContent=imagesReady.length+'画像登録可能'+(errors.length?'／'+errors.length+'件除外':'');
   status(imagesReady.length?'内容を確認しました。保存ボタンで圧縮・登録できます。':'登録可能な画像がありません。',!imagesReady.length);
  }catch(err){clearImagesPreview();status('ZIPの確認に失敗しました：'+err.message,true);}
- finally{imageProcessing=false;setBusy(busy);}
+ finally{imageProcessing=false;refreshActionButtons();}
 }
 async function saveBulkImages(){
  if(busy||!imagesReady.length)return;
@@ -153,31 +154,30 @@ function totalOfVariantStocks(variants){
 let totalAutoMode=false,manualTotalDraft='';
 function updateTotalStockField(){
  const input=$('product-stock'),hint=$('product-stock-hint');
- const variants=[];let incomplete=false;
+ const variants=[];let incomplete=false,unlimited=false;
  for(const row of $('variant-rows').children){
   const name=trim(row.querySelector('.variant-name').value),code=trim(row.querySelector('.variant-code').value);
   const price=trim(row.querySelector('.variant-price').value),eventPrice=trim(row.querySelector('.variant-event-price').value);
-  const stock=trim(row.querySelector('.variant-stock').value);
-  if(!name&&!code&&!price&&!eventPrice&&!stock)continue;
-  if(!name||!code||!/^\d+$/.test(stock)){incomplete=true;continue;}
+  const stock=trim(row.querySelector('.variant-stock').value),reserved=row.querySelector('.variant-preorder').checked;
+  if(!name&&!code&&!price&&!eventPrice&&!stock&&!reserved)continue;
+  if(!name||!code){incomplete=true;continue;}
+  if(stock===''){unlimited=true;variants.push({stock:null});continue;}
+  if(!/^\d+$/.test(stock)){incomplete=true;continue;}
   variants.push({stock});
  }
- const sum=!incomplete?totalOfVariantStocks(variants):null;
- if(sum!==null){
-  if(!totalAutoMode)manualTotalDraft=input.value;
-  input.value=String(sum);input.readOnly=true;totalAutoMode=true;
-  input.setAttribute('aria-readonly','true');
-  hint.textContent='参考表示：各バリエーションの合計 '+sum+'個。販売可否はカラー別の在庫だけで判定します。';
- }else{
-  const hasVariants=variants.length>0||incomplete;
-  if(totalAutoMode)input.value=hasVariants?'':manualTotalDraft;
-  totalAutoMode=false;input.readOnly=hasVariants;
-  if(hasVariants){input.value='';input.setAttribute('aria-readonly','true');}
-  else input.removeAttribute('aria-readonly');
-  hint.textContent=hasVariants
-   ?'各バリエーションの在庫だけで購入可否を判定します。在庫未設定のカラーがあるため合計表示できません。'
-   :'バリエーションなしの商品はここで在庫を入力します。空欄は上限なしです。';
+ const hasVariants=variants.length>0||incomplete;
+ const sum=!incomplete&&!unlimited?totalOfVariantStocks(variants):null;
+ if(!hasVariants){
+  if(totalAutoMode)input.value=manualTotalDraft;
+  totalAutoMode=false;input.readOnly=false;input.removeAttribute('aria-readonly');input.placeholder='空欄は無制限';
+  hint.textContent='バリエーションなしの商品はここで在庫を入力します。空欄は上限なしです。';return;
  }
+ if(!totalAutoMode)manualTotalDraft=input.value;
+ totalAutoMode=true;input.value=sum===null?'':String(sum);input.readOnly=true;input.setAttribute('aria-readonly','true');
+ input.placeholder=unlimited?'無制限（カラー別に管理）':'カラーごとに入力すると参考合計を表示';
+ hint.textContent=incomplete?'バリエーション名・サブコードを入力してください。保存時に確認します。':
+   unlimited?'カラー別の在庫に空欄があるため、総数は「無制限」です。空欄でも商品登録できます。':
+   '参考合計：'+sum+'個。販売上限はカラー別在庫で判定します。';
 }
 function resetTotalStockState(value=''){
  totalAutoMode=false;manualTotalDraft=String(value??'');
@@ -367,7 +367,7 @@ async function saveProduct(event){
   if(pendingImage)batch.set(imageRef(p.id),{productId:p.id,imageData:pendingImage,updatedAt:serverTimestamp()});
   if(nextCategories.length!==categories.length)batch.set(catRef(),{categories:nextCategories,updatedAt:serverTimestamp()});
   await batch.commit();const imageWasSaved=!!pendingImage;if(imageWasSaved)imageKnown.add(p.id);products.set(p.id,{...products.get(p.id),...p});categories=nextCategories;render();clearForm();status('「'+p.name+'」を'+(imageWasSaved?'画像とともに':'')+'保存しました。');
- }catch(err){console.error(err);status('保存できませんでした。認証・Firestoreルール・通信環境をご確認ください。',true);}finally{setBusy(false);}
+ }catch(err){console.error(err);status('商品を保存できませんでした（'+(err.code||'保存失敗')+'）：'+(err.message||'認証・Firestoreルール・通信環境をご確認ください。')+'。画像が原因と思われる場合は画像を外して再試行してください。',true);}finally{setBusy(false);}
 }
 async function addCategory(event){
  event.preventDefault();if(busy)return;

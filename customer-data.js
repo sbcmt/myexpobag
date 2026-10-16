@@ -1,7 +1,7 @@
 /** MY EXPO BAG v1.0.1 — Owner-only paginated CSV exports (no third-party API). */
 import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {getAuth,onAuthStateChanged,EmailAuthProvider,reauthenticateWithCredential} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {getFirestore,collection,doc,getDoc,getDocs,query,orderBy,limit,startAfter,deleteDoc} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import {getFirestore,collection,doc,getDoc,getDocs,getDocsFromServer,getDocFromServer,query,orderBy,limit,startAfter,deleteDoc} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 const $=id=>document.getElementById(id),firebase=window.MEB_FIREBASE_CONFIG||{};
 const app=getApps().length?getApp():initializeApp(firebase),db=getFirestore(app);
 let owner=null,brand=null,busy=false,customers=[],sales=[],selectedCustomers=[],selectedSales=[];
@@ -28,6 +28,7 @@ async function requirePasswordBeforeDelete(description){
 function message(value,failed=false){$('status').textContent=value;$('status').classList.toggle('error',failed);}
 function lock(flag){
  busy=flag;
+ if($('clear-test-history'))$('clear-test-history').disabled=flag||!owner;
  ['load','mail','sales','shipping','shipping-xlsx'].forEach(id=>$(id).disabled=flag||!owner);
  for(const [type,selectId,deleteId] of [['customer','select-customers','delete-customers'],['sale','select-sales','delete-sales']]){
   const eligible=type==='customer'?selectedCustomers.length:selectedSales.filter(x=>['handedOff','cancelled'].includes(x.status)).length;
@@ -43,7 +44,7 @@ async function fetchAll(ref,ordering){
  let last=null,records=[];
  for(let batch=0;batch<200;batch++){
   const q=last?query(ref,orderBy(ordering,'asc'),startAfter(last),limit(200)):query(ref,orderBy(ordering,'asc'),limit(200));
-  const page=await getDocs(q);
+  const page=await getDocsFromServer(q);
   for(const snap of page.docs)records.push({id:snap.id,...snap.data()});
   if(page.size<200)return records;
   last=page.docs.at(-1);
@@ -131,6 +132,7 @@ async function deleteHistory(type){
   refreshCounts();
   message(description+' '+done+'件を削除しました。'+(errors.length?'\n失敗：'+errors.join('\n'):'')+'\n全期間の集計とCSV出力に反映されています。',errors.length>0);
  }finally{lock(false);refreshCounts();}
+ await reload(); // Server authority after deleting sale or customer history
 }
 function refreshCounts(){
  const handed=selectedSales.filter(x=>x.status==='handedOff');
@@ -175,11 +177,28 @@ async function reload(){if(!owner||busy)return;
   sales=allSales.filter(x=>x.brandId===owner.uid);
   selectedCustomers=[...customers];
   selectedSales=[...sales];
-  message(`全期間の読込完了：登録者 ${customers.length}件・販売記録 ${sales.length}件。CSVを保存できます。`);
+  message(`サーバーから全期間の履歴を取得：登録・配送情報 ${customers.length}件／販売履歴 ${sales.length}件（お渡し済み ${sales.filter(x=>x.status==='handedOff').length}件、取消済み ${sales.filter(x=>x.status==='cancelled').length}件、確保中 ${sales.filter(x=>x.status==='reserved').length}件）。\n※登録者データを消しても販売履歴は別保存先のため残ります。両方消す場合は各履歴を削除してください。`);
   refreshCounts();
  }catch(err){console.error(err);message('履歴の取得に失敗しました。認証・Firestoreルールを確認してください：'+(err.message||err),true);}finally{lock(false);}
 }
 $('load').onclick=reload;
+$('clear-test-history').onclick=async()=>{
+ if(busy||!owner||!brand)return;
+ if(sales.some(s=>s.status==='reserved')){message('在庫確保中の注文が残っています。先にお渡し完了または取消を行ってください。',true);return;}
+ const saleIds=[...new Set(sales.filter(s=>['handedOff','cancelled'].includes(s.status)).map(s=>s.orderId))];
+ const customerIds=[...new Set(customers.map(c=>c.orderId))];
+ if(!saleIds.length&&!customerIds.length){message('削除対象の履歴はありません。');return;}
+ if(!confirm('販売履歴 '+saleIds.length+'件と登録者・配送先 '+customerIds.length+'件を削除します。\n元に戻せず、在庫も復元されません。\n必要なCSVを保存してから進めてください。続けますか？'))return;
+ try{if(!await requirePasswordBeforeDelete('販売履歴と登録者情報の一括クリア'))return;}catch(error){message(error.message,true);return;}
+ lock(true);let saleDeleted=0,customerDeleted=0;const errors=[];
+ try{
+  // Sales and customer records are separate collections. Clear both, never public QR replay markers.
+  for(const id of saleIds){try{await deleteDoc(doc(db,'brands',owner.uid,'scannedOrders',id));saleDeleted++;}catch(err){errors.push('販売 '+id+'：'+(err.message||err));}}
+  for(const id of customerIds){try{await deleteDoc(doc(db,'customerOrders',brand.slug,'orders',id));customerDeleted++;}catch(err){errors.push('顧客 '+id+'：'+(err.message||err));}}
+ }finally{lock(false);}
+ await reload();
+ message('サーバー再取得済み：販売記録 '+sales.length+'件／登録情報 '+customers.length+'件。今回削除：販売 '+saleDeleted+'件／顧客 '+customerDeleted+'件。'+(errors.length?'\n失敗：'+errors.slice(0,7).join('\n'):''),errors.length>0);
+};
 $('mail').onclick=()=>{
  const header=['注文ID','登録日時(JST)','氏名','メールアドレス','メール配信希望','注文状態','予約商品あり'];
  const rows=selectedCustomers.filter(c=>c.registered===true).map(c=>[c.orderId,localStamp(dateOf(c.createdAt)),c.buyerName,c.buyerEmail,c.marketingConsent?'はい':'いいえ',receiptState(c.orderId),c.hasPreorder?'はい':'いいえ']);
