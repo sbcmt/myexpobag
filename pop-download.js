@@ -5,8 +5,8 @@ const $=id=>document.getElementById(id);
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const pageSizes={A1:[594,841],A2:[420,594],A3:[297,420],A4:[210,297],A5:[148,210]};
 const state={db:null,user:null,brand:null,slug:'',brandName:'',customerUrl:'',template:null,logo:null,qrCanvas:null};
-const templatePath='./assets/pop-template-no-qr.png?v=20261016-qrcenter-v103';
-const logoPath='./assets/pop-qr-logo.png?v=20261016-qrcenter-v103';
+const templatePath='./assets/pop-template-no-qr.png?v=20261016-balanced-v104';
+const logoPath='./assets/pop-qr-logo.png?v=20261016-balanced-v104';
 function setStatus(msg,error=false,target='status'){const el=$(target); if(el){el.textContent=msg; el.className='status '+(error?'error':'good');}}
 function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('画像を読み込めません: '+src));img.src=src;});}
 function customerUrlFor(slug){const url=new URL('./index.html',location.href);url.searchParams.set('brand',slug);return url.href;}
@@ -26,22 +26,31 @@ function renderQrCanvas(text,size=1080){
 }
 function addLogoToQr(baseCanvas,logoImage){const c=document.createElement('canvas'); c.width=baseCanvas.width; c.height=baseCanvas.height; const ctx=c.getContext('2d'); ctx.drawImage(baseCanvas,0,0); const s=Math.round(c.width*0.18); const x=(c.width-s)/2, y=(c.height-s)/2; const radius=Math.round(s*0.18); ctx.fillStyle='#fff'; roundRect(ctx,x,y,s,s,radius); ctx.fill(); ctx.save(); roundRect(ctx,x,y,s,s,radius); ctx.clip(); ctx.drawImage(logoImage,x+Math.round(s*0.07),y+Math.round(s*0.07),Math.round(s*0.86),Math.round(s*0.86)); ctx.restore(); return c; }
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
-// QR is centered inside the SINGLE white rounded rectangle that already exists
-// in the approved 1054x1492 background. Do not paint a second rectangle.
+// The APPROVED background already contains a white rounded card: no new card may be painted.
+// Measured bounds in the 1054x1492 source image. All offsets are calculated from this rectangle.
 const POSTER_BASE_W=1054,POSTER_BASE_H=1492;
-const POSTER_QR={centerX:512,centerY:807,size:286};
+const WHITE_CARD={left:346,top:638,right:677,bottom:978};
+// Exact rectangle center: (511.5,808), QR is a square, so the vertical margin is
+// naturally ~4 px greater than the horizontal margin on this slightly taller frame.
+// Use full QR canvas (which already contains the mandatory white quiet zone).
+const QR_PRINT_SIZE=306;
+function posterQrGeometry(width,height){
+ const centerX=(WHITE_CARD.left+WHITE_CARD.right)/2;
+ const centerY=(WHITE_CARD.top+WHITE_CARD.bottom)/2;
+ return {x:(centerX-QR_PRINT_SIZE/2)*width/POSTER_BASE_W,
+         y:(centerY-QR_PRINT_SIZE/2)*height/POSTER_BASE_H,
+         w:QR_PRINT_SIZE*width/POSTER_BASE_W,
+         h:QR_PRINT_SIZE*height/POSTER_BASE_H};
+}
 function composePoster(targetCanvas,template,qrCanvas){
  const ctx=targetCanvas.getContext('2d'),w=targetCanvas.width,h=targetCanvas.height;
  ctx.clearRect(0,0,w,h);
  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
  ctx.drawImage(template,0,0,w,h);
- const qrW=POSTER_QR.size*w/POSTER_BASE_W;
- const qrH=POSTER_QR.size*h/POSTER_BASE_H;
- const qrX=POSTER_QR.centerX*w/POSTER_BASE_W-qrW/2;
- const qrY=POSTER_QR.centerY*h/POSTER_BASE_H-qrH/2;
- // Original white card is preserved intact. Its center is (512,807).
+ const pos=posterQrGeometry(w,h);
+ // Never draw extra white frames, strokes or translated QR layers.
  ctx.save();ctx.imageSmoothingEnabled=false;
- ctx.drawImage(qrCanvas,qrX,qrY,qrW,qrH);
+ ctx.drawImage(qrCanvas,pos.x,pos.y,pos.w,pos.h);
  ctx.restore();
 }
 function buildQrSvg(text,logoDataUrl){

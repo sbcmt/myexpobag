@@ -9,7 +9,7 @@
 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MY EXPO BAG｜商品プライスカード（デザイン確認）</title>
+<title>MY EXPO BAG｜商品QR・プライスカード</title>
 <style>
   :root{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",Arial,sans-serif;color:#162530}
   *{box-sizing:border-box}body{margin:0;background:#e9edf0}
@@ -22,7 +22,7 @@
   .sheet{width:210mm;height:297mm;padding:7mm 12mm;display:grid;grid-template-columns:repeat(2,91mm);grid-template-rows:repeat(5,55mm);column-gap:4mm;row-gap:2mm;break-after:page;page-break-after:always}
   .sheet:last-child{break-after:auto;page-break-after:auto}
   .pricecard{width:91mm;height:55mm;border:.25mm solid #c9d3d8;position:relative;overflow:hidden;display:flex;background:#fff;break-inside:avoid}
-  .pricecard::before{content:"SAMPLE";position:absolute;right:-3mm;bottom:7mm;z-index:2;font:700 23px Arial,sans-serif;color:#718b9526;transform:rotate(-29deg);pointer-events:none}
+  .pricecard.unpublished::after{content:"未公開";position:absolute;top:0;right:0;padding:1.5mm 3mm;background:#ac2e35;color:#fff;font-size:8pt;font-weight:800;z-index:3}
   .qr-area{width:31mm;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3mm 2mm;gap:1mm}
   .qr-area img{width:25.5mm;height:25.5mm;image-rendering:pixelated}
   .scan-note{font-size:6pt;color:#65767c;white-space:nowrap;text-align:center}
@@ -49,81 +49,13 @@
 <style id="meb-copyright-style">.meb-copyright{box-sizing:border-box;display:block;margin:16px auto 24px;padding:10px 14px;text-align:center;color:#8c98a0;font:11px/1.7 -apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;letter-spacing:.025em}@media print{.meb-copyright{display:none!important}}</style></head>
 <body>
 <header class="toolbar">
-  <div><h1>MY EXPO BAG｜プライスカード</h1><p>A4縦・名刺サイズ91×55mm・10SKU／枚<br>デモ用商品QRです。正式な商品URLとは連携していません。</p></div>
+  <div><h1>MY EXPO BAG｜プライスカード</h1><p>A4縦・名刺サイズ91×55mm・10SKU／枚<br>ブランド専用URLと連携した商品QRです。未公開商品は掲示前に公開してください。</p></div>
   <div class="actions"><button id="white" class="active" type="button">ホワイト</button><button id="accent" type="button">アクセント</button><button id="print" type="button">印刷／PDF保存</button></div>
 </header>
-<p class="notice">※ 印刷時は用紙A4・倍率100%・余白なしで確認してください。画面はデザイン見本です。</p>
+<p class="notice">※ 商品QRは該当ブランドの商品ページを開きます。未公開の商品は購入者画面に表示されません。印刷前に公開状況をご確認ください。</p>
 <div id="paper-output"></div>
-<script src="./config.js"></script><script src="./qr.js"></script>
-<script>
-(()=>{
-  const cfg=window.MEB_CONFIG;
-  if(!cfg){document.getElementById('paper-output').textContent='商品データが見つかりません';return}
-  const params=new URLSearchParams(location.search);
-  const allIds=new Set(cfg.products.map(p=>p.id));
-  const selection=(params.get('ids')||'').split(',').filter(id=>allIds.has(id));
-  const products=(selection.length?cfg.products.filter(p=>selection.includes(p.id)):cfg.products);
-  let style=params.get('style')==='accent'?'accent':'white';
-  const output=document.getElementById('paper-output');
-  const yen=n=>'¥'+Math.round(n).toLocaleString('ja-JP');
-  const lines=products.flatMap(p=>{
-    const variants=Array.isArray(p.variants)&&p.variants.length?p.variants:[{code:'',name:''}];
-    return variants.map(variant=>({product:p,variant}));
-  });
-  const makeQr=(value)=>{
-    const q=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);
-    q.addData(value);q.make();
-    const count=q.getModuleCount(),margin=4,canvas=document.createElement('canvas');
-    canvas.width=canvas.height=(count+margin*2)*6;
-    const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#111';
-    for(let r=0;r<count;r++)for(let c=0;c<count;c++)if(q.isDark(r,c))ctx.fillRect((c+margin)*6,(r+margin)*6,6,6);
-    return canvas.toDataURL('image/png');
-  };
-  const cardFor=({product:p,variant:v})=>{
-    const el=document.createElement('article');el.className='pricecard '+style;
-    const qr=document.createElement('div');qr.className='qr-area';
-    const img=document.createElement('img');
-    // These demonstration URLs are intentionally inactive. Real product deep links need brand routing.
-    const exampleUrl='https://example.com/meb-demo/?product='+encodeURIComponent(p.id)+(v.code?'&color='+encodeURIComponent(v.code):'');
-    img.src=makeQr(exampleUrl);img.alt='デザイン見本用のQR（本番では使用できません）';
-    const note=document.createElement('div');note.className='scan-note';note.textContent='商品ページQR（見本）';qr.append(img,note);
-    const info=document.createElement('div');info.className='information';
-    const brand=document.createElement('div');brand.className='brand';brand.textContent=cfg.brand.name;
-    const name=document.createElement('div');name.className='item';name.textContent=p.name;
-    const prices=document.createElement('div');prices.className='price';
-    const event=Number.isFinite(p.eventPrice)&&p.eventPrice>=0&&p.eventPrice<p.price;
-    if(event){
-      const normal=document.createElement('div');normal.className='normal strike';normal.textContent='通常 '+yen(p.price);prices.append(normal);
-    }
-    const now=document.createElement('div');now.className='now'+(event?' event':'');
-    if(event){const label=document.createElement('small');label.textContent='展示会';now.append(label)}
-    now.append(document.createTextNode(yen(event?p.eventPrice:p.price)));
-    prices.append(now);
-    info.append(brand,name,prices);
-    if(v.name){
-      const color=document.createElement('div');color.className='meta';color.textContent='カラー: '+v.name;
-      color.style.marginTop='auto';
-      color.style.textAlign='center';
-      info.append(color);
-    }
-    el.append(qr,info);return el;
-  };
-  const render=()=>{
-    output.replaceChildren();
-    const cards=lines.length?lines:[];
-    for(let start=0;start<cards.length;start+=10){
-      const paper=document.createElement('div');paper.className='paper';
-      const sheet=document.createElement('div');sheet.className='sheet';
-      cards.slice(start,start+10).forEach(c=>sheet.append(cardFor(c)));
-      paper.append(sheet);output.append(paper);
-    }
-    ['white','accent'].forEach(t=>document.getElementById(t).classList.toggle('active',style===t));
-  };
-  ['white','accent'].forEach(t=>document.getElementById(t).addEventListener('click',()=>{style=t;render()}));
-  document.getElementById('print').addEventListener('click',()=>window.print());
-  render();
-})();
-</script>
+<script src="./firebase-config.js"></script><script src="./qr.js"></script>
+<script type="module" src="./pricecards-live.js?asset=20261016-real-product-qr-v104"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body>
 </html>

@@ -426,7 +426,9 @@
     let page='home';
     if(hash==='bag')page='bag';else if(hash==='qr')page='qr';else if(hash.startsWith('product/'))page='detail';
     if(page==='bag')renderBag();else if(page==='qr')renderQr();else if(page==='detail'){
-      const p=byId(hash.slice(8));if(p)renderDetail(p);else{page='home';renderHome()}
+      const raw=hash.slice(8),question=raw.indexOf('?'),productId=question<0?raw:raw.slice(0,question);
+      const p=byId(productId);
+      if(p){if(question>=0){const color=new URLSearchParams(raw.slice(question+1)).get('variant');if(color&&variantsOf(p).some(v=>v.code===color))state.selectedColors[p.id]=color;}renderDetail(p);}else{page='home';renderHome()}
     }else renderHome();
     renderFloating(page);hydrateProductPhotos();document.title=`${cfg.brand.name} | MY EXPO BAG v${cfg.version}`;
   }
