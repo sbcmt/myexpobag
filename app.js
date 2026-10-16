@@ -316,7 +316,14 @@
   // Identity/email is NOT embedded. The future backend will join the order ID
   // to the consent / customer record after securely saving it.
   // Compact field names keep the QR scannable on phones. Map is in README.
-  const orderQrPayload = order => JSON.stringify({
+  // QRCodeCore's QR8bitByte writes only the low 8 bits of charCodeAt().
+  // Japanese prefecture names (e.g. 広島県) therefore corrupt the QR payload.
+  // Encode ALL non-ASCII characters as JSON \uXXXX escape sequences before
+  // passing bytes to the QR generator. JSON.parse() restores the original text
+  // on the staff scanner without weakening shipping/amount validation.
+  const qrAsciiJson = value => JSON.stringify(value).replace(/[^\x20-\x7e]/g,
+    char => '\\u'+char.charCodeAt(0).toString(16).padStart(4,'0'));
+  const orderQrPayload = order => qrAsciiJson({
     t:'MEB2',o:order.id,b:cfg.brand.id,e:cfg.event.id,
     i:order.items.map(x=>[x.id,x.color,x.qty]),r:order.registered?1:0,
     c:'JPY',s:order.beforeAppDiscount,p:order.appDiscountPercent,
