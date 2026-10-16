@@ -6,7 +6,7 @@ const $=id=>document.getElementById(id),firebase=window.MEB_FIREBASE_CONFIG||{};
 const app=getApps().length?getApp():initializeApp(firebase),db=getFirestore(app);
 let owner=null,brand=null,busy=false,customers=[],sales=[],selectedCustomers=[],selectedSales=[];
 function message(value,failed=false){$('status').textContent=value;$('status').classList.toggle('error',failed);}
-function lock(flag){busy=flag;['load','mail','sales','shipping','shipping-xlsx','shipping-xls'].forEach(id=>$(id).disabled=flag||!owner);}
+function lock(flag){busy=flag;['load','mail','sales','shipping','shipping-xlsx'].forEach(id=>$(id).disabled=flag||!owner);}
 const localDate=(date)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
 const localStamp=date=>new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(date);
 const dateOf=x=>x?.toDate?.()|| (typeof x==='string'?new Date(x):null);
@@ -35,12 +35,11 @@ const receiptState=id=>sales.find(s=>s.orderId===id)?.status||'QR発行済み（
 function refreshCounts(){
  const handed=selectedSales.filter(x=>x.status==='handedOff');
  const delivery=handed.filter(x=>x.hasPreorder&&customers.some(y=>y.orderId===x.orderId&&y.deliverySubmitted===true));
- const pending=selectedSales.filter(x=>['reserved','handedOff'].includes(x.status)&&x.hasPreorder&&!customers.some(y=>y.orderId===x.orderId&&y.deliverySubmitted===true));
- const pendingBox=$('pending-delivery');pendingBox.replaceChildren();for(const item of pending){const li=document.createElement('li');li.textContent=item.orderId+'｜配送情報待ち';pendingBox.append(li);}if(!pending.length){const li=document.createElement('li');li.textContent='配送情報待ちはありません。';pendingBox.append(li);}
- $('count').textContent=`登録者：${selectedCustomers.filter(c=>c.registered===true).length}件 ／ 完了注文：${handed.length}件 ／ 配送対象：${delivery.length}件 ／ 配送情報待ち：${pending.length}件`;
- const ul=$('deletable');ul.replaceChildren();
+ $('count').textContent=`登録者：${selectedCustomers.filter(c=>c.registered===true).length}件 ／ 完了注文：${handed.length}件 ／ 配送対象：${delivery.length}件`;
+ const ul=$('deletable');ul.replaceChildren();$('select-delivery').disabled=!delivery.length;$('delete-selected').disabled=!delivery.length;
  if(!delivery.length){const li=document.createElement('li');li.textContent='削除できる配送情報はありません。';ul.append(li);return;}
  for(const sale of delivery){const customer=selectedCustomers.find(c=>c.orderId===sale.orderId);const li=document.createElement('li');const span=document.createElement('span');span.textContent=sale.orderId+'｜'+(customer?.shipping?.name||customer?.buyerName||'')+'（要：発送済み確認）';
+ const check=document.createElement('input');check.type='checkbox';check.className='delivery-select';check.value=sale.orderId;check.setAttribute('aria-label',sale.orderId+' を一括削除対象に選択');check.style.width='18px';check.style.height='18px';li.append(check);
  const btn=document.createElement('button');btn.type='button';btn.className='delete';btn.textContent='個人情報を削除';
  btn.onclick=async()=>{
   if(busy)return;
@@ -49,6 +48,22 @@ function refreshCounts(){
   lock(true);try{await deleteDoc(doc(db,'customerOrders',brand.slug,'orders',sale.orderId));message('個人情報を削除しました。CSVデータを再取得してください。');customers=customers.filter(x=>x.orderId!==sale.orderId);selectedCustomers=selectedCustomers.filter(x=>x.orderId!==sale.orderId);refreshCounts();}catch(err){console.error(err);message('削除に失敗しました：'+(err.message||err),true);}finally{lock(false);}
  };li.append(span,btn);ul.append(li);}
 }
+$('select-delivery').onclick=()=>{const checks=[...document.querySelectorAll('.delivery-select')];const all=checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);};
+$('delete-selected').onclick=async()=>{
+ if(busy||!owner)return;
+ const ids=[...document.querySelectorAll('.delivery-select:checked')].map(c=>c.value);
+ if(!ids.length){message('削除する発送済み注文を選択してください。',true);return;}
+ if(!confirm('選択した'+ids.length+'件はすべて発送済みですか？\nFirebaseの氏名・住所・電話番号・メールが削除され、元に戻せません。\n購入履歴は残ります。'))return;
+ if(prompt('誤削除防止のため「'+ids.length+'件削除」と入力してください。')!==ids.length+'件削除')return;
+ lock(true);let done=0;const errors=[];
+ try{
+  for(const id of ids){
+   try{await deleteDoc(doc(db,'customerOrders',brand.slug,'orders',id));done++;customers=customers.filter(x=>x.orderId!==id);selectedCustomers=selectedCustomers.filter(x=>x.orderId!==id);}
+   catch(err){errors.push(id+'：'+(err.message||err));}
+  }
+  refreshCounts();message(done+'件の個人情報を削除しました。'+(errors.length?'\n失敗：'+errors.join('\n'):'') ,!!errors.length);
+ }finally{lock(false);}
+};
 async function reload(){if(!owner||busy)return;if($('from').value&&$('to').value&&$('from').value>$('to').value){message('日付の開始・終了が逆です。',true);return;}
  lock(true);message('Firebaseの注文履歴を取得しています…');try{
   const [allCustomers,allSales]=await Promise.all([
@@ -103,10 +118,9 @@ function excel(type){
  for(let i=1;i<=rows.length;i++)for(const col of [6,10]){const addr=window.XLSX.utils.encode_cell({r:i,c:col});if(ws[addr]){ws[addr].t='s';ws[addr].v=String(rows[i-1][col]||'');ws[addr].z='@';}}
  ws['!cols']=[{wch:28},{wch:23},{wch:17},{wch:28},{wch:20},{wch:8},{wch:13},{wch:13},{wch:48},{wch:23},{wch:18},{wch:34},{wch:22},{wch:12},{wch:22},{wch:20}];
  const book=window.XLSX.utils.book_new();window.XLSX.utils.book_append_sheet(book,ws,'配送先・予約商品ID順');
- try{window.XLSX.writeFile(book,nameFor('shipping_private',type),{bookType:type==='xls'?'biff8':'xlsx'});}catch(error){console.error(error);message('Excelの出力に失敗しました：'+error.message,true);}
+ try{window.XLSX.writeFile(book,nameFor('shipping_private','xlsx'),{bookType:'xlsx'});}catch(error){console.error(error);message('Excelの出力に失敗しました：'+error.message,true);}
 }
 $('shipping-xlsx').onclick=()=>excel('xlsx');
-$('shipping-xls').onclick=()=>excel('xls');
 if(!['apiKey','authDomain','projectId','appId'].every(k=>cfgValue(k)))message('Firebase設定がありません。',true);
 function cfgValue(k){return typeof firebase[k]==='string'&&firebase[k].length>0;}
 onAuthStateChanged(getAuth(app),async user=>{
