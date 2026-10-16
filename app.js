@@ -154,9 +154,14 @@
   const shippingNeedsPref=()=>cfg.shipping?.mode==='prefecture'&&preorderLines().length>0;
   const shippingSelector=(context='bag')=>{
     if(cfg.shipping?.mode!=='prefecture')return '';
-    return `<div class="shipping-prefecture-picker" role="group" aria-label="配送先都道府県"><strong>予約商品があります。お住まいの都道府県を選んでください。</strong>
+    // One shipping destination per cart: the first choice is shared by all
+    // preorder products, including additional quantities and later additions.
+    if(context==='detail'&&state.shippingPrefecture){
+      return `<div class="shipping-prefecture-picker" role="status"><strong>配送先：${esc(state.shippingPrefecture)}</strong><p>先に選んだ都道府県を、この予約商品にも自動で適用します。変更はMY BAGで行えます。</p></div>`;
+    }
+    return `<div class="shipping-prefecture-picker" role="group" aria-label="配送先都道府県"><strong>${state.shippingPrefecture?'予約商品の配送先を確認してください。':'お住まいの都道府県を選んでください。'}</strong>
       <label for="shipping-pref-${context}">配送先の都道府県</label><select id="shipping-pref-${context}" data-select-pref><option value="">選択してください</option>${prefOptions()}</select>
-      <p>${state.shippingPrefecture?`選択した都道府県：${esc(state.shippingPrefecture)}。予約商品の送料はMY BAGに表示されます。`:'送料を正しく計算するため、購入QRを発行する前に選択してください。'}</p></div>`;
+      <p>${state.shippingPrefecture?`選択中：${esc(state.shippingPrefecture)}。すべての受注予約品に共通で適用します。変更すると送料も再計算されます。`:'一度選ぶと、2個目以降の受注予約品にも自動で引き継がれます。送料はMY BAGでまとめて計算されます。'}</p></div>`;
   };
   const deliveryFor=(base,items=cartLines())=>window.MEB_SHIPPING.calc(cfg.shipping,base,items.some(x=>x.product?.preorder===true),state.shippingPrefecture);
   const totalCalc = (registered=false) => {
@@ -343,9 +348,11 @@
         <label class="form-label" for="delivery-phone">電話番号（数字10～11桁・必須）</label><input class="form-input" id="delivery-phone" name="phone" inputmode="tel" autocomplete="tel" pattern="[0-9]{10,11}" maxlength="11" placeholder="09012345678" required>
         <label class="form-label" for="delivery-postal">郵便番号（数字7桁・必須）</label><div class="postcode-row"><input class="form-input" id="delivery-postal" name="postal" inputmode="numeric" autocomplete="postal-code" pattern="[0-9]{7}" maxlength="7" placeholder="7390000" required><button type="button" class="outline-btn" data-lookup-zip>郵便番号から検索</button></div>
         <label class="form-label" for="delivery-prefecture">都道府県（必須）</label><select class="form-input" id="delivery-prefecture" name="prefecture" required ${canChoose?'':'disabled'}><option value="">選択してください</option>${opts}</select>
-        <label class="form-label" for="delivery-address">市区町村・番地・建物名（必須）</label><input class="form-input" id="delivery-address" name="localAddress" autocomplete="address-line1" maxlength="190" required placeholder="例：東広島市西条町〇〇 1-2-3">
+        <label class="form-label" for="delivery-address">市区町村・町名（必須）</label><input class="form-input" id="delivery-address" name="localAddress" autocomplete="address-level2" maxlength="120" required placeholder="例：東広島市西条町〇〇">
+        <label class="form-label" for="delivery-street">番地・号（必須）</label><input class="form-input" id="delivery-street" name="streetAddress" autocomplete="address-line1" maxlength="80" required placeholder="例：1-2-3">
+        <label class="form-label" for="delivery-building">建物名・部屋番号（任意）</label><input class="form-input" id="delivery-building" name="building" autocomplete="address-line2" maxlength="100" placeholder="例：〇〇マンション 201号室">
         <p class="tiny-text">${chosen?'送料計算済みの配送先：'+esc(chosen)+'。ほかの都道府県には変更できません。':'住所検索結果に合わせて都道府県を選んでください。'} 郵便番号検索では郵便番号を外部サービスに送信します。</p>
-        <p class="tiny-text">郵便番号から住所の候補を取得できますが、番地・建物名は必ず確認してください。</p>
+        <p class="tiny-text">郵便番号から市区町村・町名を自動入力できます。番地・号は必須、建物名・部屋番号は任意です。</p>
         <div id="delivery-error" role="alert" class="form-error"></div><button class="primary-btn" type="submit">配送情報を登録する</button>
       </form></section>`;
   };
@@ -597,7 +604,7 @@
       if(state.order?.prefecture&&cfg.shipping?.mode==='prefecture'&&state.order.prefecture!==pref){throw Error('この郵便番号は送料計算時に選んだ'+state.order.prefecture+'と異なります。スタッフにご相談ください。');}
       $('#delivery-prefecture').value=pref;
       $('#delivery-address').value=String(first.address2||'')+String(first.address3||'');
-      el.textContent='住所候補を入力しました。番地・建物名を追記してください。';
+      el.textContent='市区町村・町名を入力しました。番地・号を入力してください。';
     }catch(error){el.textContent=error.message||'住所検索ができません。手入力してください。';}
   }
   async function submitDelivery(form){
@@ -606,8 +613,10 @@
     const el=$('#delivery-error'),fd=new FormData(form);
     const prefecture=state.order.prefecture&&cfg.shipping?.mode==='prefecture'?state.order.prefecture:String(fd.get('prefecture')||'');
     const local=String(fd.get('localAddress')||'').trim();
-    if(!window.MEB_SHIPPING.validPref(prefecture)||!local||window.MEB_SHIPPING.prefectures.some(x=>x!==prefecture&&local.startsWith(x))){el.textContent='配送先の都道府県と住所を確認してください。';return;}
-    const shipping={prefecture,postal:String(fd.get('postal')||'').replace(/[^0-9]/g,''),address:prefecture+local,
+    const street=String(fd.get('streetAddress')||'').trim();
+    const building=String(fd.get('building')||'').trim();
+    if(!window.MEB_SHIPPING.validPref(prefecture)||!local||!street||window.MEB_SHIPPING.prefectures.some(x=>x!==prefecture&&local.startsWith(x))){el.textContent='配送先の都道府県と住所を確認してください。';return;}
+    const shipping={prefecture,postal:String(fd.get('postal')||'').replace(/[^0-9]/g,''),address:prefecture+local+' '+street+(building?' '+building:''),
       name:String(fd.get('name')||'').trim(),phone:String(fd.get('phone')||'').replace(/[^0-9]/g,''),email:String(fd.get('email')||'').trim()};
     const submit=form.querySelector('[type="submit"]');submit.disabled=true;
     el.textContent='配送情報を安全に登録しています…';
