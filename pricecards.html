@@ -1,14 +1,14 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="ja">
 <head>
-<link rel="icon" type="image/png" sizes="64x64" href="./assets/favicon-admin.png?v=20261016-icon-1">
-<link rel="shortcut icon" href="./assets/favicon-admin.ico?v=20261016-icon-1">
-<link rel="apple-touch-icon" sizes="180x180" href="./myexpobag_admin_icon_180.png?v=20261016-icon-1">
-<link rel="manifest" href="./admin.webmanifest?v=20261016-icon-1">
-<meta name="apple-mobile-web-app-title" content="EXPO BAG管理">
-
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="./assets/favicon-admin.png?v=20261016-icon-1" rel="icon" sizes="64x64" type="image/png"/>
+<link href="./assets/favicon-admin.ico?v=20261016-icon-1" rel="shortcut icon"/>
+<link href="./myexpobag_admin_icon_180.png?v=20261016-icon-1" rel="apple-touch-icon" sizes="180x180"/>
+<link href="./admin.webmanifest?v=20261016-icon-1" rel="manifest"/>
+<meta content="EXPO BAG管理" name="apple-mobile-web-app-title"/>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
 <title>MY EXPO BAG｜商品QR・プライスカード</title>
 <style>
   :root{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",Arial,sans-serif;color:#162530}
@@ -57,13 +57,13 @@
 <style id="meb-copyright-style">.meb-copyright{box-sizing:border-box;display:block;margin:16px auto 24px;padding:10px 14px;text-align:center;color:#8c98a0;font:11px/1.7 -apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;letter-spacing:.025em}@media print{.meb-copyright{display:none!important}}</style></head>
 <body>
 <header class="toolbar">
-  <div><h1>MY EXPO BAG｜プライスカード</h1><p>A4縦・名刺サイズ91×55mm・10商品ID／枚<br>ブランド専用URLと連携した商品QRです。未公開商品は掲示前に公開してください。</p></div>
-  <div class="actions"><button id="white" class="active" type="button">ホワイト</button><button id="accent" type="button">アクセント</button><button id="print" type="button">印刷／PDF保存</button></div>
+<div><h1>MY EXPO BAG｜プライスカード</h1></div>
+<div class="actions"><button class="active" id="white" type="button">ホワイト</button><button id="accent" type="button">アクセント</button><button id="print" type="button">印刷／PDF保存</button></div>
 </header>
-<p class="notice">※ 商品QRは該当ブランドの商品ページを開きます。未公開の商品は購入者画面に表示されません。印刷前に公開状況をご確認ください。</p>
+
 <div id="paper-output"></div>
 <script src="./firebase-config.js"></script><script src="./qr.js"></script>
-<script type="module" src="./pricecards-live.js?asset=20261016-pricecard-product-v109"></script>
+<script src="./pricecards-live.js?asset=20261016-pricecard-product-v109" type="module"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body>
 </html>

@@ -1,24 +1,21 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="ja">
 <head>
-<link rel="icon" type="image/png" sizes="64x64" href="./assets/favicon-admin.png?v=20261016-icon-1">
-<link rel="shortcut icon" href="./assets/favicon-admin.ico?v=20261016-icon-1">
-<link rel="apple-touch-icon" sizes="180x180" href="./myexpobag_admin_icon_180.png?v=20261016-icon-1">
-<link rel="manifest" href="./admin.webmanifest?v=20261016-icon-1">
-<meta name="apple-mobile-web-app-title" content="EXPO BAG管理">
-
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#101d26">
-  <meta name="description" content="MY EXPO BAG 出展者用 新規アカウント登録">
-  <meta name="robots" content="noindex,nofollow">
-  <title>新規アカウント作成 | MY EXPO BAG 管理</title>
-  
-  
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <style>
+<link href="./assets/favicon-admin.png?v=20261016-icon-1" rel="icon" sizes="64x64" type="image/png"/>
+<link href="./assets/favicon-admin.ico?v=20261016-icon-1" rel="shortcut icon"/>
+<link href="./myexpobag_admin_icon_180.png?v=20261016-icon-1" rel="apple-touch-icon" sizes="180x180"/>
+<link href="./admin.webmanifest?v=20261016-icon-1" rel="manifest"/>
+<meta content="EXPO BAG管理" name="apple-mobile-web-app-title"/>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+<meta content="#101d26" name="theme-color"/>
+<meta content="MY EXPO BAG 出展者用 新規アカウント登録" name="description"/>
+<meta content="noindex,nofollow" name="robots"/>
+<title>新規アカウント作成 | MY EXPO BAG 管理</title>
+<meta content="yes" name="apple-mobile-web-app-capable"/>
+<meta content="black" name="apple-mobile-web-app-status-bar-style"/>
+<style>
     :root{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif;color:#152832;font-synthesis:none}
     *{box-sizing:border-box}
     body{margin:0;min-height:100vh;min-height:100dvh;background:linear-gradient(160deg,#132a36 0%,#0d1720 60%,#0c121a 100%);padding:calc(env(safe-area-inset-top,0px) + 24px) max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 28px) max(16px,env(safe-area-inset-left,0px));display:flex;align-items:center;justify-content:center}
@@ -32,47 +29,53 @@
   </style>
 <style id="meb-copyright-style">.meb-copyright{box-sizing:border-box;display:block;margin:16px auto 24px;padding:10px 14px;text-align:center;color:#8c98a0;font:11px/1.7 -apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;letter-spacing:.025em}@media print{.meb-copyright{display:none!important}}</style></head>
 <body>
-  <main class="shell">
-    <header class="identity">
-      <img src="./myexpobag_admin_icon.png" alt="MY EXPO BAG 管理用アイコン">
-      <div><h1>MY EXPO BAG</h1><p>ADMIN · 出展者アカウント</p></div>
-    </header>
-    <section class="card" aria-labelledby="signup-title">
-      <p class="tag">CREATE ACCOUNT</p>
-      <h2 id="signup-title">新規アカウント作成</h2>
-      <p class="lead">メールアドレスとパスワードで登録できます。ブランド名も同時に登録します。登録後はメールの確認が必要です。</p>
-      <form id="signup-form" autocomplete="on">
-        <div class="field">
-          <label for="signup-brand">ブランド名</label>
-          <input id="signup-brand" name="brand" type="text" autocomplete="organization" placeholder="例：KAMO&Co!" required maxlength="60" minlength="2">
-          <p class="brand-preview">URL用識別子：<strong id="brand-slug-preview">ブランド名を入力すると表示されます</strong></p>
-          <p class="brand-note">登録時は半角英数字・半角記号で入力。URL用の名前は小文字に変換され、記号・スペースは「-」になります。後から設定画面で日本語のブランド表示名に変更できます。URL用識別子は変更されません。</p>
-        </div>
-        <div class="field">
-          <label for="signup-email">メールアドレス</label>
-          <input id="signup-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="name@brand.com" required maxlength="254">
-        </div>
-        <div class="field">
-          <label for="signup-password">パスワード</label>
-          <div class="password-wrap">
-            <input id="signup-password" name="password" type="password" autocomplete="new-password" placeholder="8文字以上" minlength="8" required>
-            <button id="signup-show-password" class="show-pass" type="button" aria-pressed="false">表示</button>
-          </div>
-        </div>
-        <div class="field">
-          <label for="signup-confirm">パスワード（確認）</label>
-          <input id="signup-confirm" name="password-confirm" type="password" autocomplete="new-password" placeholder="もう一度入力" required>
-        </div>
-        <p class="policy">8文字以上、英大文字・英小文字・数字・記号（@ &amp; - _ のいずれか）をすべて含めてください。これ以外の記号は使用できません。</p>
-        <button id="signup-submit" class="primary" type="submit" disabled>アカウントを作成</button>
-      </form>
-      <p id="signup-status" class="status" role="status" aria-live="polite">Firebaseへの接続を確認しています…</p>
-      <p class="back"><a href="./login.html" id="back-login">ログイン画面に戻る</a></p>
-    </section>
-    <p class="footer">POWERED BY <strong>MY EXPO BAG</strong>　v1.0.1</p>
-  </main>
-  <script src="./firebase-config.js"></script>
-  <script type="module" src="./signup-auth.js"></script>
+<main class="shell">
+<header class="identity">
+<img alt="MY EXPO BAG 管理用アイコン" src="./myexpobag_admin_icon.png"/>
+<div><h1>MY EXPO BAG</h1><p>ADMIN · 出展者アカウント</p></div>
+</header>
+<section aria-labelledby="signup-title" class="card">
+<p class="tag">CREATE ACCOUNT</p>
+<h2 id="signup-title">新規アカウント作成</h2>
+<p class="lead">メールアドレスとパスワードで登録できます。ブランド名も同時に登録します。登録後はメールの確認が必要です。</p>
+<form autocomplete="on" id="signup-form">
+<div class="field">
+<label for="signup-brand">ブランド名</label>
+<input autocomplete="organization" id="signup-brand" maxlength="60" minlength="2" name="brand" placeholder="例：KAMO&amp;Co!" required="" type="text"/>
+<p class="brand-preview">URL用識別子：<strong id="brand-slug-preview">ブランド名を入力すると表示されます</strong></p>
+<p class="brand-note">登録時は半角英数字・半角記号で入力。URL用の名前は小文字に変換され、記号・スペースは「-」になります。後から設定画面で日本語のブランド表示名に変更できます。URL用識別子は変更されません。</p>
+</div>
+<div class="field">
+<label style="display:flex;align-items:center;gap:8px"><input id="signup-same-operator" style="width:auto" type="checkbox">運営者名はブランド名と同じ</input></label>
+<label for="signup-operator">運営会社・運営者名（必須）</label>
+<input autocomplete="organization" id="signup-operator" maxlength="120" placeholder="法人名または個人事業の運営者名" required="" type="text"/>
+</div>
+
+<div class="field">
+<label for="signup-email">メールアドレス</label>
+<input autocomplete="email" id="signup-email" inputmode="email" maxlength="254" name="email" placeholder="name@brand.com" required="" type="email"/>
+</div>
+<div class="field">
+<label for="signup-password">パスワード</label>
+<div class="password-wrap">
+<input autocomplete="new-password" id="signup-password" minlength="8" name="password" placeholder="8文字以上" required="" type="password"/>
+<button aria-pressed="false" class="show-pass" id="signup-show-password" type="button">表示</button>
+</div>
+</div>
+<div class="field">
+<label for="signup-confirm">パスワード（確認）</label>
+<input autocomplete="new-password" id="signup-confirm" name="password-confirm" placeholder="もう一度入力" required="" type="password"/>
+</div>
+<p class="policy">8文字以上、英大文字・英小文字・数字・記号（@ &amp; - _ のいずれか）をすべて含めてください。これ以外の記号は使用できません。</p>
+<button class="primary" disabled="" id="signup-submit" type="submit">アカウントを作成</button>
+</form>
+<p aria-live="polite" class="status" id="signup-status" role="status">Firebaseへの接続を確認しています…</p>
+<p class="back"><a href="./login.html" id="back-login">ログイン画面に戻る</a></p>
+</section>
+<p class="footer">POWERED BY <strong>MY EXPO BAG</strong>　v1.0.1</p>
+</main>
+<script src="./firebase-config.js"></script>
+<script src="./signup-auth.js" type="module"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body>
 </html>

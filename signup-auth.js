@@ -3,6 +3,9 @@ import {brandSlug,validateBrand,createBrand,explainBrandError,isBrandSlugTaken} 
 const form=document.getElementById('signup-form');
 const brand=document.getElementById('signup-brand');
 const brandPreview=document.getElementById('brand-slug-preview');
+const opName=document.getElementById('signup-operator');
+const opSame=document.getElementById('signup-same-operator');
+opSame.addEventListener('change',()=>{opName.readOnly=opSame.checked;if(opSame.checked)opName.value=brand.value;});
 const email=document.getElementById('signup-email');
 const password=document.getElementById('signup-password');
 const confirm=document.getElementById('signup-confirm');
@@ -12,7 +15,7 @@ const config=window.MEB_FIREBASE_CONFIG||{};
 const configured=['apiKey','authDomain','projectId','appId'].every(k=>typeof config[k]==='string'&&config[k].trim().length>0);
 const setStatus=(message,kind='')=>{status.textContent=message;status.className='status'+(kind?' '+kind:'');};
 const passwordRule=/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[@&_\-])[A-Za-z\d@&_\-]{8,}$/;
-brand.addEventListener('input',()=>{
+brand.addEventListener('input',()=>{if(opSame.checked)opName.value=brand.value;
   const slug=brandSlug(brand.value);
   brandPreview.textContent=slug?'?brand='+slug:'ブランド名を入力すると表示されます';
 });
@@ -46,6 +49,7 @@ if(configured){
       e.preventDefault();if(submit.disabled)return;
       const problem=validateBrand(brand.value);
       if(problem){setStatus(problem,'error');brand.focus();return;}
+      if(!opName.value.trim()){setStatus('運営者名を入力してください。','error');return;}
       if(!passwordRule.test(password.value)){
         setStatus('パスワードは8文字以上で、大文字・小文字・数字・指定記号（@ & - _）をすべて含めてください。','error');password.focus();return;
       }
@@ -65,7 +69,7 @@ if(configured){
       try{
         const created=await createUserWithEmailAndPassword(auth,email.value.trim(),password.value);
         user=created.user;
-        try{await createBrand(user,brand.value);brandSaved=true;}
+        try{await createBrand(user,brand.value,{operatorName:opName.value});brandSaved=true;}
         catch(err){brandProblem=err.message==='brand-already-exists'?'すでにブランド登録があります。':explainBrandError(err);}
         try{await sendEmailVerification(user);emailSent=true;}catch(err){ /* manual resend from login */ }
         form.hidden=true;

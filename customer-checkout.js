@@ -5,7 +5,7 @@ import {getFirestore,doc,setDoc,getDoc,updateDoc,serverTimestamp} from 'https://
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const app=getApps().length?getApp():initializeApp(cfg);
 const auth=getAuth(app),db=getFirestore(app);
-const orderPattern=/^DEMO-[A-F0-9]{20}$/;
+const orderPattern=/^(?:MEB|DEMO)-[A-F0-9]{20}$/;
 const slugPattern=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 async function signed(){if(!auth.currentUser)await signInAnonymously(auth);if(!auth.currentUser)throw Error('購入者の認証を確認できません。');return auth.currentUser;}
 function requireIds(payload){if(!slugPattern.test(payload.slug)||!orderPattern.test(payload.orderId))throw Error('注文番号が正しくありません。');}

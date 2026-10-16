@@ -51,7 +51,7 @@ function priceFor(p,code){
 }
 function parseOrder(text){
  let raw;try{raw=JSON.parse(String(text||'').replace(/^\uFEFF/,'').trim());}catch{throw Error('購入QRのデータ形式が不正です。お客様ページで「最新版を表示」して、新しい購入QRを発行してください。');}
- if(raw?.t!=='MEB2'||typeof raw.o!=='string'||!/^DEMO-[A-F0-9]{20}$/.test(raw.o))throw Error('対応していない購入QRです。');
+ if(raw?.t!=='MEB2'||typeof raw.o!=='string'||!/^(?:MEB|DEMO)-[A-F0-9]{20}$/.test(raw.o))throw Error('対応していない購入QRです。');
  if(raw.b!==brand.slug||raw.e!==brand.slug)throw Error('別の出展ブランドのQRです。');
  if(!Array.isArray(raw.i)||raw.i.length<1||raw.i.length>30)throw Error('購入商品数が不正です。');
  const counts=new Map(),items=[],keys=new Set();

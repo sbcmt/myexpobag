@@ -1,4 +1,4 @@
-/** MY EXPO BAG — Customer experience v1.0.1 (demo / no order backend yet) */
+/** MY EXPO BAG — Customer experience v1.0.1 */
 (() => {
   'use strict';
   const cfg = window.MEB_CONFIG;
@@ -393,7 +393,7 @@
       return;
     }
     $('#view').innerHTML=`<div class="page-body qr-page"><button class="back-button" data-nav="#bag" style="display:flex">${ICONS.left} MY BAGに戻る</button><div class="eyebrow">CHECKOUT QR</div><h1 class="page-title" style="margin-top:9px">購入QR</h1><p class="page-subtitle">この画面を出展者スタッフに見せてください。</p>
-      <section class="qr-card"><div class="qr-status">動作確認用 QR</div><div class="qr-canvas-wrap"><canvas id="order-qr" width="480" height="480" role="img" aria-label="購入QRコード"></canvas></div>
+      <section class="qr-card"><div class="qr-status">購入QR</div><div class="qr-canvas-wrap"><canvas id="order-qr" width="480" height="480" role="img" aria-label="購入QRコード"></canvas></div>
       <div class="qr-price-box"><div class="qr-price-label">合計金額（税込）</div><div class="qr-price-base">${yen(order.beforeAppDiscount)}</div>
         ${order.shippingFee>0?`<div class="qr-app-discount"><span>送料</span><span>＋${yen(order.shippingFee)}</span></div>`:order.hasPreorder?`<div class="qr-app-discount"><span>送料</span><span>送料当社負担</span></div>`:''}
         ${order.appDiscountAmount>0?`<div class="qr-app-discount"><span>アプリ割引（${order.appDiscountMode==='percent'?order.appDiscountPercent+'%':yen(discountOffer().value)+'引き'}）</span><span>−${yen(order.appDiscountAmount)}</span></div>`:''}
@@ -406,7 +406,6 @@
         ${order.items.map(line=>`<div class="qr-data-row"><span>${esc(line.color||line.id)}</span><strong>×${line.qty}</strong></div>`).join('')}
         <div class="qr-data-row"><span>お支払い予定額</span><strong>${yen(order.total)}</strong></div>
         ${order.gift?`${cfg.novelty.mode!=='minimum'?`<div class="qr-data-row"><span>ノベルティ</span><strong>${esc(cfg.novelty.name)} 対象</strong></div>`:''}<div class="gift-qr-caution">${esc(giftCaution)}</div>`:''}</div>
-      <div class="demo-alert"><strong>テスト運用中です。</strong><br/>注文情報・CSVの保存は追加済みですが、メールアドレスの本人確認、決済照合、確保放置時の自動解除は未実装です。実際の支払完了や商品引渡しを示すものではありません。</div>
       <button class="outline-btn" data-nav="#home">商品一覧に戻る</button></div>`;
     try{
       const code=new window.QRCodeCore(0,window.QRErrorCorrectLevel.M);code.addData(orderQrPayload(order));code.make();
@@ -489,6 +488,7 @@
     completeBundle();
   }
   function showCheckout(){
+    if(!cfg.brand.operatorName){toast('運営者情報が未登録のため購入QRを発行できません。スタッフにお知らせください。');return;}
     if(!itemCount()||missingColors().length)return;if(shippingNeedsPref()&&!state.shippingPrefecture){toast('予約商品の配送先都道府県を選んでください。');return;}const stockError=checkoutStockError();if(stockError){toast(stockError);return;}
     state.modalOpen=true;state.checkoutMode='register';
     const offer=totalCalc(true),original=totalCalc(false);
@@ -505,7 +505,7 @@
         ${preorderLines().length?`<p class="meb-delivery-prompt">予約商品の配送先（氏名・住所・電話番号・発送通知メール）は、スタッフが購入QRを読み取ったあとに入力します。QR画面を閉じずにお待ちください。</p>`:''}
         <div id="skip-description" class="skip-description" hidden>登録なしでQRを発行します。${discountOffer().mode!=='none'?'アプリ購入割引は適用されません。':'商品・セット割引はそのまま適用されます。'}</div>
         <div class="checkout-price-preview" id="checkout-price-preview">${discountOffer().mode!=='none'&&offer.appDiscountAmount>0?`<span>登録後のお支払い金額</span><strong>${yen(offer.total)}</strong>`:`<span>お支払い予定額</span><strong>${yen(offer.total)}</strong>`}</div>
-        <p class="tiny-text">登録した情報は出展ブランドの管理者だけが閲覧できる領域に保存します。発送情報は発送目的に限り使用し、必要期間終了後に削除してください。<strong>QRには個人情報を含めません。</strong></p>
+        <p class="tiny-text">個人情報の取り扱いは<a href="./privacy.html?brand=${encodeURIComponent(cfg.brand.id)}" target="_blank" rel="noopener noreferrer">プライバシーポリシー</a>をご確認ください。</p>
         <div class="form-error" id="checkout-error" role="alert"></div><button class="primary-btn" type="submit">購入QRを表示する →</button></form></section></div>`;
     $('#buyer-name').focus();
   }
@@ -551,7 +551,7 @@
     if(form.dataset.sending==='1')return;form.dataset.sending='1';const submit=form.querySelector('[type=submit]');submit.disabled=true;$('#checkout-error').textContent='登録内容を安全に保存しています…';
     if(!window.crypto?.getRandomValues){$('#checkout-error').textContent='安全な注文番号を作成できません。HTTPSで開いてください。';delete form.dataset.sending;submit.disabled=false;return;}
     const bytes=new Uint8Array(10);crypto.getRandomValues(bytes);
-    const id='DEMO-'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
+    const id='MEB-'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
     const totals=totalCalc(registered);
     const items=cartLines().map(line=>({id:line.id,color:line.color?line.id+'_'+line.color:'',qty:line.qty}));
     try{

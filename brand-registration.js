@@ -31,10 +31,12 @@ export async function isBrandSlugTaken(input){
   const db=getFirestore();
   return (await getDoc(doc(db,'brandHandles',slug))).exists();
 }
-export async function createBrand(user,input){
+export async function createBrand(user,input,operatorDetails={}){
   const original=input.trim();
   const invalid=validateBrand(original);
   if(invalid) throw new Error(invalid);
+  const operatorName=String(operatorDetails.operatorName||'').trim();
+  if(!operatorName||operatorName.length>120)throw new Error('運営者名は1〜120文字で入力してください。');
   const slug=brandSlug(original);
   const uid=user?.uid;
   if(!uid)throw new Error('ログインしてからブランドを登録してください。');
@@ -51,10 +53,10 @@ export async function createBrand(user,input){
       slug,
       registrationName:original,
       displayName:original,
-      logoUrl:'',
+      logoUrl:'',operatorName,
       createdAt:serverTimestamp(),updatedAt:serverTimestamp()
     });
-    transaction.set(routeRef,{brandId:uid,ownerUid:uid,slug,displayName:original,logoUrl:''});
+    transaction.set(routeRef,{brandId:uid,ownerUid:uid,slug,displayName:original,logoUrl:'',operatorName});
   });
   return {slug,displayName:original,brandId:uid};
 }

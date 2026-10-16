@@ -113,6 +113,9 @@ async function verifyOwner(user){
   if(!handle.exists() || handle.data().brandId!==user.uid)throw new Error('公開ブランド情報が見つかりません。');
   brandRecord=record;iconValue=validIcon(record.logoUrl||'')?record.logoUrl:'';
   $('display-name').value=record.displayName||'';
+  $('operator-name').value=record.operatorName||'';
+  $('operator-same').checked=Boolean(record.operatorName&&record.operatorName===record.displayName);
+  $('operator-name').readOnly=$('operator-same').checked;
   $('brand-slug').value=record.slug;
   await reload(user);
   $('account-email').value=user.email||'';
@@ -143,18 +146,22 @@ $('brand-icon-file').addEventListener('change',async()=>{
   }
 });
 $('remove-icon').addEventListener('click',()=>{iconValue='';avatar('');showStatus('brand-status','画像を解除しました。「ブランド情報を保存」で反映されます。');});
+$('operator-same').addEventListener('change',()=>{const same=$('operator-same').checked;$('operator-name').readOnly=same;if(same)$('operator-name').value=$('display-name').value.trim();});
+$('display-name').addEventListener('input',()=>{if($('operator-same').checked)$('operator-name').value=$('display-name').value.trim();});
 $('brand-form').addEventListener('submit',async event=>{
   event.preventDefault();if(!currentUser||!brandRecord)return;
   const displayName=$('display-name').value.trim();
+  const operatorName=($('operator-same').checked?displayName:$('operator-name').value.trim());
+  if(!operatorName||operatorName.length>120){showStatus('brand-status','運営者名を入力してください。','error');return;}
   if(!displayName||[...displayName].length>100){showStatus('brand-status','ブランド名は1〜100文字で入力してください。','error');return;}
   if(!validIcon(iconValue)){showStatus('brand-status','画像が大きすぎます。別の画像を選択してください。','error');return;}
   const btn=$('save-brand');btn.disabled=true;showStatus('brand-status','ブランド情報を保存しています…');
   try{
     const batch=writeBatch(db);
-    batch.update(doc(db,'brands',currentUser.uid),{displayName,logoUrl:iconValue,updatedAt:serverTimestamp()});
-    batch.update(doc(db,'brandHandles',brandRecord.slug),{displayName,logoUrl:iconValue});
+    batch.update(doc(db,'brands',currentUser.uid),{displayName,logoUrl:iconValue,operatorName,updatedAt:serverTimestamp()});
+    batch.update(doc(db,'brandHandles',brandRecord.slug),{displayName,logoUrl:iconValue,operatorName});
     await batch.commit();
-    brandRecord={...brandRecord,displayName,logoUrl:iconValue};
+    brandRecord={...brandRecord,displayName,logoUrl:iconValue,operatorName};
     showStatus('brand-status','保存しました。管理画面へ戻ります。','ok');
     location.assign(new URL('./admin.html',location.href).href);
   }catch(error){showStatus('brand-status',explain(error),'error');}

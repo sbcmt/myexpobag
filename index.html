@@ -104,6 +104,8 @@
         const customerConfig=await window.MEB_LOAD_CUSTOMER_BRAND(slug);
         if(requestedSlug){try{localStorage.setItem('meb:last-brand',requestedSlug);}catch{}}
         window.MEB_CONFIG=customerConfig;
+        const pl=document.getElementById('customer-privacy-link');
+        if(pl)pl.href='./privacy.html?brand='+encodeURIComponent(customerConfig.brand.id);
         await import('./customer-checkout.js?asset=20261016-checkout-release-v101');
         await runScript('shipping-utils.js');
         await runScript('qr.js');
@@ -122,7 +124,7 @@
   <div class="app-shell" id="app">
     <header class="site-header" id="site-header"></header>
     <main id="view" tabindex="-1"></main>
-    <footer class="site-footer"><span>POWERED BY <strong>MY EXPO BAG</strong></span><span>v1.0.1</span></footer>
+    <footer class="site-footer"><span>POWERED BY <strong>MY EXPO BAG</strong></span><span>v1.0.1</span><a id="customer-privacy-link" href="./privacy.html" style="color:inherit;text-decoration:underline;margin-left:12px">プライバシーポリシー</a></footer>
   </div>
   <div id="floating-bag" class="floating-bag-wrap" hidden></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

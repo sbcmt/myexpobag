@@ -92,7 +92,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   // order's public acknowledgement. No customer PII or purchased item list is published.
   // Firestore rules forbid listing orders and allow only exact document reads.
   window.MEB_WATCH_ORDER_CONFIRMATION=(orderId,notify,onError)=>{
-    if(!/^DEMO-[A-F0-9]{20}$/.test(String(orderId||'')))return ()=>{};
+    if(!/^(?:MEB|DEMO)-[A-F0-9]{20}$/.test(String(orderId||'')))return ()=>{};
     return onSnapshot(doc(db,'publicOrderConfirmations',slug,'orders',orderId),snapshot=>{
       if(!snapshot.exists())return;
       const data=snapshot.data();
@@ -138,7 +138,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   const checkout={handoffExpiryMinutes:[1,3,5,10].includes(Number(settings?.checkout?.handoffExpiryMinutes))?Number(settings.checkout.handoffExpiryMinutes):5};
   return {
     version:'1.0.1',ownerBrandId:handle.brandId,
-    brand:{id:slug,name,description:'',logoUrl:typeof handle.logoUrl==='string'?handle.logoUrl:'',
+    brand:{id:slug,name,operatorName:typeof handle.operatorName==='string'?handle.operatorName.trim():'',description:'',logoUrl:typeof handle.logoUrl==='string'?handle.logoUrl:'',
       themePreset:typeof settings?.theme?.preset==='string'?settings.theme.preset:(typeof brandTheme.preset==='string'?brandTheme.preset:'natural'),
       customColors:settings?.theme?{}:(brandTheme.customColors||{})},
     event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',

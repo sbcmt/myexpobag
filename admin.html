@@ -1,30 +1,26 @@
-<!doctype html>
-<html lang="ja" class="auth-pending">
-<head>
-<link rel="icon" type="image/png" sizes="64x64" href="./assets/favicon-admin.png?v=20261016-icon-1">
-<link rel="shortcut icon" href="./assets/favicon-admin.ico?v=20261016-icon-1">
-<link rel="apple-touch-icon" sizes="180x180" href="./myexpobag_admin_icon_180.png?v=20261016-icon-1">
-<link rel="manifest" href="./admin.webmanifest?v=20261016-icon-1">
-<meta name="apple-mobile-web-app-title" content="EXPO BAG管理">
+<!DOCTYPE html>
 
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0e1820">
-  <meta name="description" content="MY EXPO BAG 出展者用管理ページ">
-  <title>MY EXPO BAG 管理</title>
-  <!-- Customer and admin get different Home Screen labels, icons and PWA IDs. -->
-  
-  
-  
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <script src="./firebase-config.js"></script>
-  <script>
+<html class="auth-pending" lang="ja">
+<head>
+<link href="./assets/favicon-admin.png?v=20261016-icon-1" rel="icon" sizes="64x64" type="image/png"/>
+<link href="./assets/favicon-admin.ico?v=20261016-icon-1" rel="shortcut icon"/>
+<link href="./myexpobag_admin_icon_180.png?v=20261016-icon-1" rel="apple-touch-icon" sizes="180x180"/>
+<link href="./admin.webmanifest?v=20261016-icon-1" rel="manifest"/>
+<meta content="EXPO BAG管理" name="apple-mobile-web-app-title"/>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+<meta content="#0e1820" name="theme-color"/>
+<meta content="MY EXPO BAG 出展者用管理ページ" name="description"/>
+<title>MY EXPO BAG 管理</title>
+<!-- Customer and admin get different Home Screen labels, icons and PWA IDs. -->
+<meta content="yes" name="apple-mobile-web-app-capable"/>
+<meta content="black" name="apple-mobile-web-app-status-bar-style"/>
+<script src="./firebase-config.js"></script>
+<script>
     // When Firebase is configured, hide the admin UI until the auth guard verifies the session.
     (()=>{const c=window.MEB_FIREBASE_CONFIG||{};if(['apiKey','authDomain','projectId','appId'].every(k=>typeof c[k]==='string'&&c[k].trim()))document.documentElement.classList.add('auth-pending')})();
   </script>
-  <style>
+<style>
     :root{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif;color:#14212a;background:#f3f5f6;font-synthesis:none}
     *{box-sizing:border-box}.auth-pending body{visibility:hidden}body{margin:0;min-height:100vh}button,a{font:inherit}button{cursor:pointer}a{color:inherit}
     .header{background:#101d26;color:#fff;padding-top:calc(env(safe-area-inset-top,0px) + 12px);padding-right:max(18px,env(safe-area-inset-right,0px));padding-bottom:14px;padding-left:max(18px,env(safe-area-inset-left,0px));display:flex;align-items:flex-start;justify-content:space-between;gap:12px;min-height:calc(72px + env(safe-area-inset-top,0px))}
@@ -47,67 +43,67 @@
     footer{text-align:center;color:#83909a;font-size:11px;padding-top:15px}footer strong{color:#475966}
     @media(max-width:560px){.header{align-items:flex-start}.controls{max-width:42%;gap:6px}.controls button{padding:8px 10px;font-size:11px}.brand h1{font-size:14px}.brand small{font-size:10px}}@media(max-width:400px){.brand h1{font-size:13px}.controls{max-width:45%}.controls button{padding:8px;font-size:11px;min-height:38px}.brand img{width:36px;height:36px}}
   </style>
-  <script defer src="./admin-refresh.js?asset=20261015-sku-stock-watch"></script>
+<script defer="" src="./admin-refresh.js?asset=20261015-sku-stock-watch"></script>
 <style id="meb-copyright-style">.meb-copyright{box-sizing:border-box;display:block;margin:16px auto 24px;padding:10px 14px;text-align:center;color:#8c98a0;font:11px/1.7 -apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;letter-spacing:.025em}@media print{.meb-copyright{display:none!important}}</style></head>
 <body>
-  <header class="header">
-    <div class="brand">
-      <img src="./myexpobag_admin_icon.png" alt="管理ページアイコン">
-      <div><h1>MY EXPO BAG 管理</h1><small id="current-brand-name">出展者・販売スタッフ用</small></div>
-    </div>
-    <div class="controls">
-      <button type="button" id="menu-btn" aria-controls="menu-panel" aria-expanded="false">☰ メニュー</button>
-    </div>
-  </header>
-  <main class="wrap">
-    <div class="notice"><strong>v1.0.1｜管理画面の初期レイアウトです。</strong><br>購入QR・販売履歴・顧客CSVを連携。個人情報は管理者以外へ共有しないでください。</div>
-    <section class="card navpanel" id="menu-panel" hidden aria-label="管理メニュー">
-      <h2>管理メニュー</h2>
-      <div class="admin-menu">
-        <a class="menu-link" href="./products.html"><span>商品・カテゴリ登録</span><span aria-hidden="true">›</span></a>
-        <a class="menu-link" href="./customer-data.html"><span>顧客CSVデータダウンロード</span><span aria-hidden="true">›</span></a>
-        <a class="menu-link" href="./pop-download.html"><span>POP・お客様QRダウンロード</span><span aria-hidden="true">›</span></a>
-        <button type="button" class="menu-link" id="products-qr-menu" aria-expanded="false" aria-controls="product-qr-panel"><span>商品QRダウンロード</span><span aria-hidden="true">›</span></button>
-        <details class="setting-group">
-          <summary>設定 <span class="expand-hint">開く <span aria-hidden="true">⌄</span></span></summary>
-          <div class="submenu">
-            <a class="menu-link" href="./settings.html"><span>ブランドカラー・バナー・アプリ割引・ノベルティ</span><span aria-hidden="true">›</span></a>
-            <a class="menu-link" href="./shipping-settings.html"><span>予約配送料設定（全国一律・都道府県別・CSV）</span><span aria-hidden="true">›</span></a>
-            <a class="menu-link" href="./event-settings.html"><span>展示会名の変更（既存機能）</span><span aria-hidden="true">›</span></a>
-          </div>
-        </details>
-        <a class="menu-link" id="account-link" href="./account.html"><span>アカウント情報</span><span aria-hidden="true">›</span></a>
-        <a id="customer-page-link" class="menu-link" href="./index.html" target="_blank" rel="noopener noreferrer"><span>お客様ページを見る</span><span aria-hidden="true">↗</span></a>
-        <button type="button" class="menu-link" id="logout-btn" hidden><span>ログアウト</span><span aria-hidden="true">↗</span></button>
-      </div>
-    </section>
-    <section class="card navpanel" id="product-qr-panel" hidden aria-label="商品QRダウンロード見本">
-      <div class="panel-top"><h2>商品QRダウンロード</h2><button type="button" class="small-back" id="product-back">← 戻る</button></div>
-      <p class="muted">登録した商品を読み込み、商品ID単位のQR付きプライスカードを作成します。未公開商品には印刷前に警告を表示します。</p>
-      <label class="select-all"><input type="checkbox" id="product-check-all"> <strong>ALL｜すべて選択</strong></label>
-      <div id="products-selection-list" class="product-selection"></div>
-      <p class="muted" id="product-selected-count" aria-live="polite">選択数：0商品</p>
-      <div class="preview-actions">
-        <button type="button" class="preview-action" id="preview-light" disabled>ホワイトでプレビュー・印刷</button>
-        <button type="button" class="preview-action secondary" id="preview-dark" disabled>アクセントでプレビュー・印刷</button>
-      </div>
-      <button type="button" class="preview-action" id="download-product-qr" disabled style="width:100%;margin-top:10px;background:#146076">選択した商品QRをZIPで保存</button>
-      <p class="muted" id="product-qr-export-status" role="status"></p>
-      <p class="muted">A4に10枚（2列×5段）、1枚は91×55mm。商品IDごとに1枚、1つのQRを作成します。公開前の商品はお客様ページで表示できないため、公開してから掲示してください。</p>
-    </section>
-    <section class="card" aria-label="QR読み取り">
-      <h2>購入QR読み取り</h2>
-      <p class="muted">読み取り画面で商品・金額を確認し、在庫を更新します。購入者情報・ノベルティを連携します。</p>
-      <div class="scanner" aria-label="購入QRの読み取り">
-        <div class="scanner-symbol" aria-hidden="true"></div>
-        <a href="./scan.html" style="color:white;font-weight:750;background:#146076;text-decoration:none;padding:12px 18px;border-radius:10px">購入QRを読み取る →</a>
-        <small>認証済みスタッフが読み取ると在庫が更新されます</small>
-      </div>
-      <div class="result"><div class="result-label">お支払い金額</div><div class="result-value">— 円</div><p class="empty">QRの読み取り待ちです。ノベルティは対象の場合にのみ表示します。</p></div>
-    </section>
-    <footer>POWERED BY <strong>MY EXPO BAG</strong>　v1.0.1</footer>
-  </main>
-  <script>
+<header class="header">
+<div class="brand">
+<img alt="管理ページアイコン" src="./myexpobag_admin_icon.png"/>
+<div><h1>MY EXPO BAG 管理</h1><small id="current-brand-name">出展者・販売スタッフ用</small></div>
+</div>
+<div class="controls">
+<button aria-controls="menu-panel" aria-expanded="false" id="menu-btn" type="button">☰ メニュー</button>
+</div>
+</header>
+<main class="wrap">
+
+<section aria-label="管理メニュー" class="card navpanel" hidden="" id="menu-panel">
+<h2>管理メニュー</h2>
+<div class="admin-menu">
+<a class="menu-link" href="./products.html"><span>商品・カテゴリ登録</span><span aria-hidden="true">›</span></a>
+<a class="menu-link" href="./customer-data.html"><span>顧客CSVデータダウンロード</span><span aria-hidden="true">›</span></a>
+<a class="menu-link" href="./pop-download.html"><span>POP・お客様QRダウンロード</span><span aria-hidden="true">›</span></a>
+<button aria-controls="product-qr-panel" aria-expanded="false" class="menu-link" id="products-qr-menu" type="button"><span>商品QRダウンロード</span><span aria-hidden="true">›</span></button>
+<details class="setting-group">
+<summary>設定 <span class="expand-hint">開く <span aria-hidden="true">⌄</span></span></summary>
+<div class="submenu">
+<a class="menu-link" href="./settings.html"><span>ブランドカラー・バナー・アプリ割引・ノベルティ</span><span aria-hidden="true">›</span></a>
+<a class="menu-link" href="./shipping-settings.html"><span>予約配送料設定（全国一律・都道府県別・CSV）</span><span aria-hidden="true">›</span></a>
+<a class="menu-link" href="./event-settings.html"><span>展示会名の変更（既存機能）</span><span aria-hidden="true">›</span></a>
+</div>
+</details>
+<a class="menu-link" href="./account.html" id="account-link"><span>アカウント情報</span><span aria-hidden="true">›</span></a>
+<a class="menu-link" href="./index.html" id="customer-page-link" rel="noopener noreferrer" target="_blank"><span>お客様ページを見る</span><span aria-hidden="true">↗</span></a>
+<button class="menu-link" hidden="" id="logout-btn" type="button"><span>ログアウト</span><span aria-hidden="true">↗</span></button>
+</div>
+</section>
+<section aria-label="商品QRダウンロード" class="card navpanel" hidden="" id="product-qr-panel">
+<div class="panel-top"><h2>商品QRダウンロード</h2></div>
+
+<label class="select-all"><input id="product-check-all" type="checkbox"/> <strong>ALL｜すべて選択</strong></label>
+<div class="product-selection" id="products-selection-list"></div>
+<p aria-live="polite" class="muted" id="product-selected-count">選択数：0商品</p>
+<div class="preview-actions">
+<button class="preview-action" disabled="" id="preview-light" type="button">ホワイトでプレビュー・印刷</button>
+<button class="preview-action secondary" disabled="" id="preview-dark" type="button">アクセントでプレビュー・印刷</button>
+</div>
+<button class="preview-action" disabled="" id="download-product-qr" style="width:100%;margin-top:10px;background:#146076" type="button">選択した商品QRをZIPで保存</button>
+<p class="muted" id="product-qr-export-status" role="status"></p>
+
+</section>
+<section aria-label="QR読み取り" class="card">
+<h2>購入QR読み取り</h2>
+
+<div aria-label="購入QRの読み取り" class="scanner">
+<div aria-hidden="true" class="scanner-symbol"></div>
+<a href="./scan.html" style="color:white;font-weight:750;background:#146076;text-decoration:none;padding:12px 18px;border-radius:10px">購入QRを読み取る →</a>
+<small>認証済みスタッフが読み取ると在庫が更新されます</small>
+</div>
+<div class="result"><div class="result-label">お支払い金額</div><div class="result-value">— 円</div></div>
+</section>
+<footer>POWERED BY <strong>MY EXPO BAG</strong>　v1.0.1</footer>
+</main>
+<script>
     (()=>{
       const menu=document.getElementById('menu-panel');
       const btnMenu=document.getElementById('menu-btn');
@@ -155,9 +151,7 @@
         menu.hidden=true;qrPanel.hidden=false;btnQr.setAttribute('aria-expanded','true');btnMenu.setAttribute('aria-expanded','false');
         qrPanel.scrollIntoView({block:'start',behavior:'smooth'});
       });
-      document.getElementById('product-back').addEventListener('click',()=>{
-        qrPanel.hidden=true;menu.hidden=false;btnQr.setAttribute('aria-expanded','false');btnMenu.setAttribute('aria-expanded','true');
-      });
+
       previewBtns.forEach((btn,i)=>btn.addEventListener('click',()=>{
         const ids=currentSelected();if(!ids.length)return;
         const url=new URL('./pricecards.html',location.href);
@@ -169,10 +163,10 @@
       // never from a visitor-controlled URL parameter.
     })();
   </script>
-  <script src="./qr.js"></script>
-  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script type="module" src="./admin-auth.js"></script>
-  <script type="module" src="./admin-product-qr.js?asset=20261016-real-product-qr-v109"></script>
+<script src="./qr.js"></script>
+<script defer="" src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="./admin-auth.js" type="module"></script>
+<script src="./admin-product-qr.js?asset=20261016-real-product-qr-v109" type="module"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body>
 </html>

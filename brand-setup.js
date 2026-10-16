@@ -5,10 +5,13 @@ const preview=document.getElementById('brand-setup-slug');
 const status=document.getElementById('brand-setup-status');
 const button=document.getElementById('brand-setup-submit');
 const form=document.getElementById('brand-setup-form');
+const opInput=document.getElementById('brand-setup-operator');
+const opSame=document.getElementById('brand-setup-same-operator');
+opSame.addEventListener('change',()=>{opInput.readOnly=opSame.checked;if(opSame.checked)opInput.value=input.value;});
 const login=new URL('./login.html',location.href).href;
 const admin=new URL('./admin.html',location.href).href;
 const setStatus=(msg,kind='')=>{status.textContent=msg;status.className='status'+(kind?' '+kind:'');};
-input.addEventListener('input',()=>{preview.textContent=brandSlug(input.value)||'入力すると表示されます';});
+input.addEventListener('input',()=>{if(opSame.checked)opInput.value=input.value;preview.textContent=brandSlug(input.value)||'入力すると表示されます';});
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 if(!['apiKey','authDomain','projectId','appId'].every(k=>!!cfg[k])){
   setStatus('Firebaseの接続設定が見つかりません。','error');
@@ -36,8 +39,9 @@ if(!['apiKey','authDomain','projectId','appId'].every(k=>!!cfg[k])){
       e.preventDefault();if(button.disabled||!user)return;
       const invalid=validateBrand(input.value);
       if(invalid){setStatus(invalid,'error');return;}
+      if(!opInput.value.trim()){setStatus('運営者名を入力してください。','error');return;}
       button.disabled=true;setStatus('ブランドを登録しています…');
-      try{await createBrand(user,input.value);setStatus('登録できました。管理画面を開きます。','good');location.replace(admin);}
+      try{await createBrand(user,input.value,{operatorName:opInput.value});setStatus('登録できました。管理画面を開きます。','good');location.replace(admin);}
       catch(err){setStatus(explainBrandError(err),'error');button.disabled=false;}
     });
     document.getElementById('brand-setup-logout').addEventListener('click',async()=>{await signOut(auth);location.replace(login);});
