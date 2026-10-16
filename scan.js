@@ -283,7 +283,7 @@ async function reserveAtScan(parsed,quote){
 }
 async function loadQr(text){
  if(!ready()||stage!=='scan')return;
- working=true;$('camera-start').disabled=true;$('manual-scan').disabled=true;
+ working=true;$('camera-start').disabled=true;
  say('注文内容を検証し、在庫を確保しています…');
  try{
   const parsed=parseOrder(text),refs=refsForOrder(parsed.raw);
@@ -293,7 +293,7 @@ async function loadQr(text){
   const result=await reserveAtScan(parsed,quote);
   acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,bundles:result.data.bundles||[],discountMode:result.data.discountMode,discountValue:result.data.discountValue,discountMinSpend:result.data.discountMinSpend,discountRegistered:result.data.discountRegistered,shippingFee:result.data.shippingFee,shippingMode:result.data.shippingMode,shippingThreshold:result.data.shippingThreshold,shippingCharge:result.data.shippingCharge,shippingPrefecture:result.data.shippingPrefecture,hasPreorder:result.data.hasPreorder,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
  }catch(err){console.error(err);say(err.message||'在庫確保に失敗しました。',true);candidate=null;}
- finally{working=false;document.querySelectorAll('.cancel-line').forEach(b=>b.disabled=false);if(stage==='scan'&&user){$('camera-start').disabled=false;$('manual-scan').disabled=false;}}
+ finally{working=false;document.querySelectorAll('.cancel-line').forEach(b=>b.disabled=false);if(stage==='scan'&&user){$('camera-start').disabled=false;}}
 }
 async function cancelLine(key,all=false){
  if(!ready()||!candidate||!['review','prepared'].includes(stage))return;
@@ -391,7 +391,7 @@ async function stopCamera(){
 }
 async function startCamera(){
  if(!ready()||stage!=='scan'||cameraStarting)return;
- if(!window.Html5Qrcode){say('カメラライブラリを読み込めませんでした。入力欄をご利用ください。',true);return;}
+ if(!window.Html5Qrcode){say('QR読み取りライブラリを読み込めませんでした。通信環境を確認して、画面を再読み込みしてください。',true);return;}
  cameraStarting=true;$('camera-start').disabled=true;
  try{
   await stopCamera();
@@ -403,7 +403,7 @@ async function startCamera(){
    if(working||stage!=='scan'||scanner!==instance)return;
    working=true;
    try{await stopCamera();}finally{working=false;}
-   $('qr-input').value=text;
+   
    await loadQr(text);
   },()=>{});
   $('camera-stop').disabled=false;
@@ -411,40 +411,12 @@ async function startCamera(){
  }catch(err){console.error(err);say('カメラを起動できません。iPhoneのカメラ権限をご確認ください。',true);await stopCamera();}
  finally{cameraStarting=false;if(stage==='scan'&&user)$('camera-start').disabled=false;}
 }
-function reset(){candidate=null;$('qr-input').value='';$('customer-checked').checked=false;$('prepare').disabled=true;display('scan');say('QRの読み取り待ちです。');$('camera-start').disabled=!user;$('manual-scan').disabled=!user;}
+function reset(){candidate=null;$('customer-checked').checked=false;$('prepare').disabled=true;display('scan');say('QRの読み取り待ちです。');$('camera-start').disabled=!user;}
 document.querySelector('header a[href]').addEventListener('click',event=>{
  if(candidate?.status==='reserved'&&['review','prepared'].includes(stage)){event.preventDefault();window.alert('この注文は在庫確保済みです。管理画面へ戻る前に、お渡しを完了するか、残りの商品をすべて取り消してください。');}
 });
 $('camera-start').addEventListener('click',startCamera);
 $('camera-stop').addEventListener('click',stopCamera);
-// Fallback for QR screenshots/photos. Decoding is done locally by html5-qrcode;
-// the selected image is not uploaded to a server.
-$('qr-image').addEventListener('change',async event=>{
- const file=event.target.files?.[0];
- if(!file)return;
- event.target.value='';
- if(!ready()||stage!=='scan')return;
- if(!window.Html5Qrcode){say('QR読み取りライブラリが読み込めませんでした。',true);return;}
- $('camera-start').disabled=true;
- $('manual-scan').disabled=true;
- say('画像内のQRを読み取っています…');
- try{
-  await stopCamera();
-  const instance=new window.Html5Qrcode('reader');
-  scanner=instance;
-  const text=await instance.scanFile(file,false);
-  await stopCamera();
-  $('qr-input').value=text;
-  await loadQr(text);
- }catch(err){
-  console.error('QR image decode error',err);
-  say('画像からQRを認識できませんでした。QRが鮮明に写った画像でお試しください。',true);
-  await stopCamera();
- }finally{
-  if(stage==='scan'&&user&&!working){$('camera-start').disabled=false;$('manual-scan').disabled=false;}
- }
-});
-$('manual-scan').addEventListener('click',async()=>{await stopCamera();await loadQr($('qr-input').value);});
 $('customer-checked').addEventListener('change',()=>{$('prepare').disabled=!$('customer-checked').checked||working;});
 $('prepare').addEventListener('click',()=>{if(ready()&&stage==='review'&&candidate&&$('customer-checked').checked)prepView();});
 document.addEventListener('click',event=>{const b=event.target.closest('[data-cancel-key]');if(b)cancelLine(b.dataset.cancelKey);});
@@ -462,7 +434,7 @@ else{
   try{
    const s=await getDoc(doc(db,'brands',u.uid));if(!s.exists()||s.data().ownerUid!==u.uid)throw Error('ブランド管理権限がありません。');
    user=u;brand=s.data();$('auth-state').textContent='ログイン中：'+brand.displayName;
-   $('camera-start').disabled=false;$('manual-scan').disabled=false;
+   $('camera-start').disabled=false;
   }catch(err){console.error(err);say('ブランド情報を確認できませんでした。',true);}
  });
 }
