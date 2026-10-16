@@ -256,9 +256,11 @@ async function reserveAtScan(parsed,quote){
    if(!Array.isArray(old.originalLines))throw Error('以前の形式で確保した注文です。個別取消には対応していません。管理者へお問い合わせください。');
    return {already:true,data:old};
   }
+  // Preserve the public cancellation marker: deleting a sale must never make its QR reusable.
   // All reads precede writes. Concurrency on stock prevents overselling.
   const customerRef=doc(db,'customerOrders',brand.slug,'orders',raw.o);
-  const [stockSnap,catalogSnap,settingsSnap,customerSnap,...prodSnaps]=await Promise.all([tx.get(refs.stock),tx.get(refs.catalog),tx.get(refs.settings),tx.get(customerRef),...productRefs.map(ref=>tx.get(ref))]);
+  const [ackSnap,stockSnap,catalogSnap,settingsSnap,customerSnap,...prodSnaps]=await Promise.all([tx.get(refs.confirmation),tx.get(refs.stock),tx.get(refs.catalog),tx.get(refs.settings),tx.get(customerRef),...productRefs.map(ref=>tx.get(ref))]);
+  if(ackSnap.exists())throw Error(ackSnap.data().status==='cancelled'?'この購入QRは取消済みのため再利用できません。':'この購入QRはすでに受付済みです。履歴を確認してください。');
   if(!stockSnap.exists()||!catalogSnap.exists())throw Error('商品・在庫の公開が未完了です。');
   const stock=stockSnap.data(),catalog=catalogSnap.data();
   if(stock.brandId!==user.uid||catalog.brandId!==user.uid)throw Error('別ブランドの商品です。');
@@ -354,7 +356,8 @@ async function cancelLine(key,all=false){
    const kept=all?[]:sale.remainingLines.filter(x=>x.key!==key);
    const totals=new Map();for(const line of removed)totals.set(line.id,(totals.get(line.id)||0)+line.qty);
    const ids=[...totals.keys()];const productRefs=ids.map(id=>doc(db,'brands',user.uid,'products',id));
-   const [stockSnap,ackSnap,...privateSnaps]=await Promise.all([tx.get(refs.stock),tx.get(refs.confirmation),...productRefs.map(r=>tx.get(r))]);
+   const customerRef=doc(db,'customerOrders',brand.slug,'orders',candidate.raw.o);
+   const [stockSnap,ackSnap,customerSnap,...privateSnaps]=await Promise.all([tx.get(refs.stock),tx.get(refs.confirmation),tx.get(customerRef),...productRefs.map(r=>tx.get(r))]);
    if(!stockSnap.exists()||!ackSnap.exists())throw Error('現在の在庫情報に不整合があります。');
    const stock=stockSnap.data(),next={...stock.quantities},nextVariants={...(stock.variantQuantities||{})};
    if(stock.brandId!==user.uid)throw Error('在庫の管理ブランドが一致しません。');
@@ -393,8 +396,15 @@ async function cancelLine(key,all=false){
    const shippingFee=kept.some(x=>x.preorder===true)&&['threshold','prefecture'].includes(sale.shippingMode)&&((sale.shippingThreshold||0)<=0||base<(sale.shippingThreshold||0))?(sale.shippingCharge||0):0;
    const nextStatus=kept.length?'reserved':'cancelled';
    tx.update(refs.stock,{quantities:next,variantQuantities:nextVariants,updatedAt:serverTimestamp()});
-   tx.update(refs.sale,{items:compactItems(kept),remainingLines:kept,amount,shippingFee,status:nextStatus,updatedAt:serverTimestamp()});
-   tx.update(refs.confirmation,{amount,status:kept.length?'confirmed':'cancelled',hasPreorder:kept.some(x=>x.preorder===true),modified:true,updatedAt:serverTimestamp()});
+   if(kept.length){
+    tx.update(refs.sale,{items:compactItems(kept),remainingLines:kept,amount,shippingFee,status:nextStatus,updatedAt:serverTimestamp()});
+   }else{
+    // Full cancellation removes the sale and private buyer record atomically.
+    // The public confirmation is retained as a non-personal QR replay blocker.
+    tx.delete(refs.sale);
+    if(customerSnap.exists())tx.delete(customerRef);
+   }
+   tx.update(refs.confirmation,{amount:kept.length?amount:0,status:kept.length?'confirmed':'cancelled',hasPreorder:kept.some(x=>x.preorder===true),modified:true,updatedAt:serverTimestamp()});
    return {lines:kept,amount,shippingFee,hasPreorder:kept.some(x=>x.preorder===true),status:nextStatus};
   },{maxAttempts:5});
   candidate={...candidate,...updated};refreshGift(candidate);

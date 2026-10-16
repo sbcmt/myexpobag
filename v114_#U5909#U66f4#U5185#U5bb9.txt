@@ -1,0 +1,15 @@
+MY EXPO BAG v114 — 管理ページへの戻るナビゲーションの統一
+
+変更点
+・管理系9画面すべてで、画面上部右端の「← 管理ページ」に統一。
+・ヘッダーの高さと左右の余白、ボタンの幅／デザインを共通CSSで統一。
+・PRICE CARDの画面にも戻るボタンを追加。印刷／PDFでは非表示。
+・管理画面内の商品QRでは既存の右上「← 管理ページ」をそのまま使用。
+・商品・在庫・販売履歴・予約商品の注文処理やFirebase関連のファイルは変更なし。
+
+変更したファイル
+admin-navigation.css（追加）
+products.html、scan.html、customer-data.html、pricecards.html、settings.html、shipping-settings.html、event-settings.html、account.html、pop-download.html
+
+GitHub Pagesの古いキャッシュが残る場合は、強制再読み込み（Windows: Ctrl+F5）。
+Firestoreルール：変更なし・更新不要。

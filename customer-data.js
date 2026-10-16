@@ -1,7 +1,7 @@
 /** MY EXPO BAG v1.0.1 — Owner-only paginated CSV exports (no third-party API). */
 import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {getAuth,onAuthStateChanged,EmailAuthProvider,reauthenticateWithCredential} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {getFirestore,collection,doc,getDoc,getDocs,getDocsFromServer,getDocFromServer,query,orderBy,limit,startAfter,deleteDoc} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import {getFirestore,collection,doc,getDoc,getDocs,getDocsFromServer,getDocFromServer,query,orderBy,limit,startAfter,deleteDoc,writeBatch} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 const $=id=>document.getElementById(id),firebase=window.MEB_FIREBASE_CONFIG||{};
 const app=getApps().length?getApp():initializeApp(firebase),db=getFirestore(app);
 let owner=null,brand=null,busy=false,customers=[],sales=[],selectedCustomers=[],selectedSales=[];
@@ -168,17 +168,39 @@ $('delete-selected').onclick=async()=>{
   refreshCounts();message(done+'件の個人情報を削除しました。'+(errors.length?'\n失敗：'+errors.join('\n'):'') ,!!errors.length);
  }finally{lock(false);}
 };
+// Remove records cancelled by older app versions. The public QR marker stays intact.
+// Check the authoritative cancellation acknowledgement before deleting either record.
+async function cleanupOldCancelled(allSales){
+ let removed=0,failed=0;
+ for(const sale of allSales.filter(x=>x.status==='cancelled'&&x.brandId===owner.uid)){
+  try{
+   const ack=await getDocFromServer(doc(db,'publicOrderConfirmations',brand.slug,'orders',sale.orderId));
+   if(!ack.exists()||ack.data().status!=='cancelled'){failed++;continue;}
+   const batch=writeBatch(db);
+   batch.delete(doc(db,'brands',owner.uid,'scannedOrders',sale.orderId));
+   batch.delete(doc(db,'customerOrders',brand.slug,'orders',sale.orderId));
+   await batch.commit();removed++;
+  }catch(error){console.error('取消済み履歴の整理に失敗',sale.orderId,error);failed++;}
+ }
+ return {removed,failed};
+}
 async function reload(){if(!owner||busy)return;
  lock(true);message('Firebaseの注文履歴を取得しています…');try{
   const [allCustomers,allSales]=await Promise.all([
    fetchAll(collection(db,'customerOrders',brand.slug,'orders'),'createdAt'),
    fetchAll(collection(db,'brands',owner.uid,'scannedOrders'),'scanTime')
   ]);
-  customers=allCustomers.filter(x=>x.brandId===owner.uid);
-  sales=allSales.filter(x=>x.brandId===owner.uid);
+  const cleanup=await cleanupOldCancelled(allSales);
+  // Re-fetch after cleanup so both lists and CSV exports reflect server state.
+  const [currentCustomers,currentSales]=cleanup.removed?await Promise.all([
+   fetchAll(collection(db,'customerOrders',brand.slug,'orders'),'createdAt'),
+   fetchAll(collection(db,'brands',owner.uid,'scannedOrders'),'scanTime')
+  ]):[allCustomers,allSales];
+  customers=currentCustomers.filter(x=>x.brandId===owner.uid);
+  sales=currentSales.filter(x=>x.brandId===owner.uid);
   selectedCustomers=[...customers];
   selectedSales=[...sales];
-  message(`サーバーから全期間の履歴を取得：登録・配送情報 ${customers.length}件／販売履歴 ${sales.length}件（お渡し済み ${sales.filter(x=>x.status==='handedOff').length}件、取消済み ${sales.filter(x=>x.status==='cancelled').length}件、確保中 ${sales.filter(x=>x.status==='reserved').length}件）。\n※販売履歴・登録情報は別保存先です。注文QRの再利用防止用の公開確認データはセキュリティのため削除対象外です。`);
+  message(`サーバーから全期間の履歴を取得：登録・配送情報 ${customers.length}件／販売履歴 ${sales.length}件（お渡し済み ${sales.filter(x=>x.status==='handedOff').length}件、取消済み ${sales.filter(x=>x.status==='cancelled').length}件、確保中 ${sales.filter(x=>x.status==='reserved').length}件）。${cleanup.removed?'\n旧版の取消済み履歴 '+cleanup.removed+'件を自動削除しました。':''}${cleanup.failed?'\n取消済み履歴の整理に失敗 '+cleanup.failed+'件。':''}\n※販売履歴・登録情報は別保存先です。注文QRの再利用防止用の公開確認データはセキュリティのため削除対象外です。`);
   refreshCounts();
   return true;
  }catch(err){console.error(err);message('履歴の取得に失敗しました。認証・Firestoreルールを確認してください：'+(err.message||err),true);return false;}finally{lock(false);}
