@@ -1,10 +1,30 @@
 /** MY EXPO BAG v1.0.1 — Owner-only paginated CSV exports (no third-party API). */
 import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
-import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+import {getAuth,onAuthStateChanged,EmailAuthProvider,reauthenticateWithCredential} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 import {getFirestore,collection,doc,getDoc,getDocs,query,orderBy,limit,startAfter,deleteDoc} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 const $=id=>document.getElementById(id),firebase=window.MEB_FIREBASE_CONFIG||{};
 const app=getApps().length?getApp():initializeApp(firebase),db=getFirestore(app);
 let owner=null,brand=null,busy=false,customers=[],sales=[],selectedCustomers=[],selectedSales=[];
+async function requirePasswordBeforeDelete(description){
+ if(!owner?.email)throw Error('パスワード認証に対応していないアカウントです。ログイン方法をご確認ください。');
+ const raw=await new Promise(resolve=>{
+  const overlay=document.createElement('div');overlay.style.cssText='position:fixed;inset:0;background:rgba(5,21,32,.68);z-index:99999;display:grid;place-items:center;padding:16px';
+  const card=document.createElement('form');card.style.cssText='background:#fff;color:#193340;border-radius:16px;padding:22px;width:min(420px,100%);box-shadow:0 10px 40px #0003';
+  const title=document.createElement('h3');title.textContent='削除の本人確認';title.style.marginTop='0';
+  const msg=document.createElement('p');msg.textContent=description+'を削除します。操作の前にログイン時のパスワードで再認証してください。';msg.style.cssText='font-size:14px;line-height:1.7';
+  const label=document.createElement('label');label.textContent='ログインパスワード';label.htmlFor='confirm-login-password';label.style.cssText='display:block;margin:12px 0 6px;font-size:13px;font-weight:700';
+  const input=document.createElement('input');input.id='confirm-login-password';input.type='password';input.autocomplete='current-password';input.required=true;input.style.cssText='width:100%;box-sizing:border-box;border:1px solid #a9bdc5;border-radius:8px;padding:12px;font-size:16px';
+  const row=document.createElement('div');row.style.cssText='display:flex;justify-content:flex-end;gap:10px;margin-top:18px';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='キャンセル';cancel.style.cssText='padding:12px;border:1px solid #bbb;background:#fff;border-radius:8px';
+  const submit=document.createElement('button');submit.type='submit';submit.textContent='再認証して削除';submit.style.cssText='padding:12px;background:#174a60;color:white;border:0;border-radius:8px';
+  const done=value=>{const answer=value===null?null:input.value;input.value='';overlay.remove();resolve(value===null?null:answer);};
+  cancel.onclick=()=>done(null);card.onsubmit=e=>{e.preventDefault();done(true);};
+  row.append(cancel,submit);card.append(title,msg,label,input,row);overlay.append(card);document.body.append(overlay);input.focus();
+ });
+ if(raw===null)return false;
+ try{await reauthenticateWithCredential(owner,EmailAuthProvider.credential(owner.email,raw));return true;}
+ catch(error){console.error('Firebase再認証に失敗',error.code);throw Error('パスワードを確認できませんでした。ログイン時のパスワードをご確認ください。');}
+}
 function message(value,failed=false){$('status').textContent=value;$('status').classList.toggle('error',failed);}
 function lock(flag){
  busy=flag;
@@ -98,7 +118,7 @@ async function deleteHistory(type){
  const description=isCustomer?'登録者・配送先データ':'販売履歴';
  const warning=isCustomer?'未対応注文の本人確認・配送情報登録ができなくなる場合があります。':'売上履歴から消えます。在庫は元に戻りません。QRの公開確認情報は再利用防止のため残ります。';
  if(!confirm(description+' '+ids.length+'件をFirebaseから完全に削除します。\n'+warning+'\n復元できません。続けますか？'))return;
- const phrase=ids.length+'件削除';if(prompt('誤操作防止：'+phrase+' と入力してください。')!==phrase)return;
+ try{if(!await requirePasswordBeforeDelete(description+' '+ids.length+'件'))return;}catch(error){message(error.message,true);return;}
  lock(true);let done=0;const errors=[];
  try{
   for(const id of ids){
@@ -125,7 +145,7 @@ function refreshCounts(){
  btn.onclick=async()=>{
   if(busy)return;
   if(!confirm('この注文は発送済みですか？\n'+sale.orderId+'\n氏名・住所・電話番号・メールがFirebaseから消え、復元できません。購入履歴は残ります。'))return;
-  const typed=prompt('誤削除防止のため「削除」と入力してください。');if(typed!=='削除')return;
+  try{if(!await requirePasswordBeforeDelete('配送先個人情報 1件'))return;}catch(error){message(error.message,true);return;}
   lock(true);try{await deleteDoc(doc(db,'customerOrders',brand.slug,'orders',sale.orderId));message('個人情報を削除しました。CSVデータを再取得してください。');customers=customers.filter(x=>x.orderId!==sale.orderId);selectedCustomers=selectedCustomers.filter(x=>x.orderId!==sale.orderId);refreshCounts();}catch(err){console.error(err);message('削除に失敗しました：'+(err.message||err),true);}finally{lock(false);}
  };li.append(span,btn);ul.append(li);}
  renderHistory();
@@ -136,7 +156,7 @@ $('delete-selected').onclick=async()=>{
  const ids=[...document.querySelectorAll('.delivery-select:checked')].map(c=>c.value);
  if(!ids.length){message('削除する発送済み注文を選択してください。',true);return;}
  if(!confirm('選択した'+ids.length+'件はすべて発送済みですか？\nFirebaseの氏名・住所・電話番号・メールが削除され、元に戻せません。\n購入履歴は残ります。'))return;
- if(prompt('誤削除防止のため「'+ids.length+'件削除」と入力してください。')!==ids.length+'件削除')return;
+ try{if(!await requirePasswordBeforeDelete('配送先個人情報 '+ids.length+'件'))return;}catch(error){message(error.message,true);return;}
  lock(true);let done=0;const errors=[];
  try{
   for(const id of ids){

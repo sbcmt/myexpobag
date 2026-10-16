@@ -92,7 +92,7 @@
         const slug=new URLSearchParams(location.search).get('brand');
         const customerConfig=await window.MEB_LOAD_CUSTOMER_BRAND(slug);
         window.MEB_CONFIG=customerConfig;
-        await import('./customer-checkout.js?asset=20261015-csv-shipping-v101');
+        await import('./customer-checkout.js?asset=20261016-checkout-release-v101');
         await runScript('shipping-utils.js');
         await runScript('qr.js');
         await runScript('app.js');

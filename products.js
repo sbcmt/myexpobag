@@ -205,17 +205,23 @@ function variantRow(values={}){
  codeBox.append(prefix,codeInput);codeBox.classList.add('subcode-input');code.querySelector('label').after(codeBox);main.append(code);
  const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.className='danger';remove.addEventListener('click',()=>{row.remove();updateTotalStockField();});main.append(remove);row.append(main);
  const prices=document.createElement('div');prices.className='cols';prices.append(make('バリエーション通常価格（任意）','variant-price','未設定なら商品価格',values.price));prices.append(make('バリエーション展示会特価（任意）','variant-event-price','未設定なら商品価格',values.eventPrice));prices.append(make('バリエーション在庫数（任意）','variant-stock','空欄は無制限・0は完売',values.stock));row.append(prices);
+ const preorderWrap=document.createElement('div');preorderWrap.className='field';preorderWrap.style.marginTop='8px';
+ const preLabel=document.createElement('label');preLabel.textContent='このバリエーションの受注予約';
+ const preSelect=document.createElement('select');preSelect.className='variant-preorder';
+ for(const [value,label] of [['inherit','商品全体の設定に従う'],['yes','このバリエーションは予約受注'],['no','このバリエーションは通常販売']]){const o=document.createElement('option');o.value=value;o.textContent=label;preSelect.append(o);}
+ preSelect.value=typeof values.preorder==='boolean'?(values.preorder?'yes':'no'):'inherit';
+ preSelect.addEventListener('change',toggleRelease);preorderWrap.append(preLabel,preSelect);row.append(preorderWrap);
  return row;
 }
 function refreshSubcodePrefixes(){const id=trim($('product-id').value)||'商品ID';for(const el of document.querySelectorAll('.subcode-prefix'))el.textContent=id+'_';}
 $('product-id').addEventListener('input',refreshSubcodePrefixes);
 for(let m=1;m<=12;m++){const option=document.createElement('option');option.value=String(m);option.textContent=m+'月';$('release-month').append(option);}
-function toggleRelease(){const required=$('product-preorder').checked;$('release-settings').hidden=!required;$('release-month').required=required;$('release-period').required=required;if(!required){$('release-month').value='';$('release-period').value='';}}
+function toggleRelease(){const required=$('product-preorder').checked||[...document.querySelectorAll('.variant-preorder')].some(x=>x.value==='yes');$('release-settings').hidden=!required;$('release-month').required=required;$('release-period').required=required;}
 $('product-preorder').addEventListener('change',toggleRelease);toggleRelease();
 function showVariants(variants=[]){
  const root=$('variant-rows');root.replaceChildren();const rows=variants.length?variants:[{},{},{}];
  for(const v of rows)root.append(variantRow(v));
- refreshSubcodePrefixes();updateTotalStockField();
+ refreshSubcodePrefixes();updateTotalStockField();toggleRelease();
 }
 function readVariants(id){
  const result=[],codes=new Set();
@@ -225,7 +231,8 @@ function readVariants(id){
   const priceText=trim(el.querySelector('.variant-price').value);
   const eventText=trim(el.querySelector('.variant-event-price').value);
   const stockText=trim(el.querySelector('.variant-stock').value);
-  if(!name&&!raw&&!priceText&&!eventText&&!stockText)continue;
+  const preorderOverride=el.querySelector('.variant-preorder').value;
+  if(!name&&!raw&&!priceText&&!eventText&&!stockText&&preorderOverride==='inherit')continue;
   if(!name||!raw)throw Error('バリエーション名とサブコードはセットで入力してください。');
   if(raw.startsWith(id+'_'))throw Error('サブコード欄には商品IDを含めず、BKなど末尾だけを入力してください。');
   const code=raw.toUpperCase();
@@ -234,7 +241,7 @@ function readVariants(id){
   const price=money(priceText,'バリエーション通常価格',true),eventPrice=money(eventText,'バリエーション展示会価格',true);
   if(price!==null&&eventPrice!==null&&eventPrice>=price)throw Error('バリエーション展示会価格は同じバリエーションの通常価格未満にしてください。');
   const stock=money(stockText,'バリエーション在庫数',true);
-  result.push({code,name,price,eventPrice,stock});
+  result.push({code,name,price,eventPrice,stock,preorder:preorderOverride==='inherit'?null:preorderOverride==='yes'});
  }
  if(result.length>MAX_VARIANTS)throw Error('バリエーションは100件以内にしてください。');
  return result;
@@ -286,15 +293,17 @@ function productOf(fields){
   const effectivePrice=variantPrice??price;
   if(variantEvent!==null&&variantEvent>=effectivePrice)throw Error(id+'：バリエーション展示会特価は通常価格より小さくしてください。');
   const variantStock=money(v.stock??'',id+'のバリエーション在庫数',true);
-  return {code:trim(v.code).toUpperCase(),name:trim(v.name),price:variantPrice,eventPrice:variantEvent,stock:variantStock};
+  const preorderOverride=v.preorder===true||v.preorder==='1'?true:v.preorder===false||v.preorder==='0'?false:null;
+  return {code:trim(v.code).toUpperCase(),name:trim(v.name),price:variantPrice,eventPrice:variantEvent,stock:variantStock,preorder:preorderOverride};
  });
  if(new Set(variants.map(v=>v.code)).size!==variants.length)throw Error(id+'：サブコードが重複しています。');
  const janCode=trim(fields.janCode??'');if(janCode&&!/^\d{8,14}$/.test(janCode))throw Error(id+'：JANコードは8〜14桁の数字にしてください。');
  const stock=variants.length?null:money(fields.stock??'',id+'の在庫数',true); // SKU商品は総在庫を販売制限に使わない
    const preorder=fields.preorder===true;
-   const releaseMonth=preorder?Number(fields.releaseMonth):null;
-   const releasePeriod=preorder?trim(fields.releasePeriod):'';
-   if(preorder&&(!Number.isInteger(releaseMonth)||releaseMonth<1||releaseMonth>12||!['上旬','中旬','下旬'].includes(releasePeriod)))
+   const hasReservation=preorder||variants.some(v=>v.preorder===true);
+   const releaseMonth=hasReservation?Number(fields.releaseMonth):null;
+   const releasePeriod=hasReservation?trim(fields.releasePeriod):'';
+   if(hasReservation&&(!Number.isInteger(releaseMonth)||releaseMonth<1||releaseMonth>12||!['上旬','中旬','下旬'].includes(releasePeriod)))
      throw Error(id+'：予約商品は発売予定月（1～12月）と時期（上旬・中旬・下旬）が必須です。');
  const inputCombos=Array.isArray(fields.combos)?fields.combos:(fields.comboProductId?[{productId:fields.comboProductId,discount:fields.comboDiscount??0}]:[]);
  const combos=validateCombos(id,inputCombos);
@@ -327,7 +336,7 @@ function productList(){
   const row=document.createElement('div');row.className='product';
   const info=document.createElement('div');info.className='product-info';
   const name=document.createElement('div');name.className='product-name';name.textContent=p.name+(p.active===false?'（非表示）':'');
-  const meta=document.createElement('div');meta.className='product-meta';meta.textContent=[p.id,p.categoryName,yen(p.price),p.eventPrice!==null&&p.eventPrice!==undefined?'展示会 '+yen(p.eventPrice):'',(p.variants||[]).length?'バリエーション '+p.variants.length+'種':'',p.preorder&&p.releaseMonth?`${p.releaseMonth}月${p.releasePeriod}予定`:'',(p.variants||[]).length?((p.variants||[]).every(v=>v.stock===0)?'SOLD OUT':''):(p.stock===0?'SOLD OUT':''),].filter(Boolean).join(' ／ ');
+  const meta=document.createElement('div');meta.className='product-meta';meta.textContent=[p.id,p.categoryName,yen(p.price),p.eventPrice!==null&&p.eventPrice!==undefined?'展示会 '+yen(p.eventPrice):'',(p.variants||[]).length?'バリエーション '+p.variants.length+'種':'',(p.preorder||(p.variants||[]).some(v=>v.preorder===true))&&p.releaseMonth?`${p.releaseMonth}月${p.releasePeriod}予定`:'',(p.variants||[]).length?((p.variants||[]).every(v=>v.stock===0)?'SOLD OUT':''):(p.stock===0?'SOLD OUT':''),].filter(Boolean).join(' ／ ');
   info.append(name,meta);const edit=document.createElement('button');edit.type='button';edit.textContent='編集';edit.addEventListener('click',()=>editProduct(p.id));
   const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='削除';del.addEventListener('click',()=>deleteProduct(p.id));
   row.append(info,edit,del);box.append(row);
@@ -338,8 +347,8 @@ function editProduct(id){
  const p=products.get(id);if(!p)return;
  $('product-id').value=p.id;$('product-id').readOnly=true;$('product-name').value=p.name;
  $('product-category').value=p.categoryName;$('product-price').value=p.price;$('product-event-price').value=p.eventPrice??'';
- showVariants((p.variants||[]).map(v=>({code:trim(v.code).startsWith(p.id+'_')?trim(v.code).slice(p.id.length+1):v.code,name:v.name,price:v.price??'',eventPrice:v.eventPrice??'',stock:v.stock??''}))); 
- $('product-jan').value=p.janCode||'';resetTotalStockState(p.stock??'');$('product-preorder').checked=p.preorder===true;toggleRelease();$('release-month').value=p.releaseMonth??'';$('release-period').value=p.releasePeriod||'';
+ showVariants((p.variants||[]).map(v=>({code:trim(v.code).startsWith(p.id+'_')?trim(v.code).slice(p.id.length+1):v.code,name:v.name,price:v.price??'',eventPrice:v.eventPrice??'',stock:v.stock??'',preorder:v.preorder}))); 
+ $('product-jan').value=p.janCode||'';resetTotalStockState(p.stock??'');$('product-preorder').checked=p.preorder===true;$('release-month').value=p.releaseMonth??'';$('release-period').value=p.releasePeriod||'';toggleRelease();
  showCombos(existingCombos(p));$('product-active').checked=p.active!==false;
  pendingImage=null;$('product-image').value='';loadSavedImage(id,++imageRevision);
  $('edit-note').textContent='編集中：'+p.id+'（商品IDは変更できません）';$('product-form').scrollIntoView({behavior:'smooth',block:'start'});
@@ -380,7 +389,7 @@ async function deleteProduct(id){
  catch(err){console.error(err);status('商品を削除できませんでした。',true);}finally{setBusy(false);}
 }
 // Japanese 22-column workbook. One parent ID can span multiple variation rows; old 15-column files are also readable.
-const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)','発売予定月(予約時必須)','発売予定時期(予約時必須)','バリエーション在庫数(任意)'];
+const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)','発売予定月(予約時必須)','発売予定時期(予約時必須)','バリエーション在庫数(任意)','バリエーション受注予約(任意)'];
 const sample=[
  ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','BK','カラー：ブラック','','','BG-002',500,'TB-003',300,'', ''],
  ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','KH','カラー：カーキ','','','BG-002',500,'TB-003',300,'', ''],
@@ -393,7 +402,7 @@ function spreadsheetRows(){
  for(const p of [...products.values()].sort((a,b)=>a.id.localeCompare(b.id,'ja'))){
   const variants=p.variants?.length?p.variants:[null];
   const combos=existingCombos(p);
-  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,(p.variants||[]).length?(totalOfVariantStocks(p.variants)??''):(p.stock??''),v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'',p.preorder?p.releaseMonth??'':'',p.preorder?p.releasePeriod||'':'',v?.stock??'']);
+  for(const v of variants)rows.push([p.categoryName,p.id,p.name,p.price,p.active===false?0:1,p.janCode||'',p.eventPrice??'',p.preorder?1:0,(p.variants||[]).length?(totalOfVariantStocks(p.variants)??''):(p.stock??''),v?.code||'',v?.name||'',v?.price??'',v?.eventPrice??'',combos[0]?.productId||'',combos[0]?.discount??'',combos[1]?.productId||'',combos[1]?.discount??'',combos[2]?.productId||'',combos[2]?.discount??'',(p.preorder||p.variants?.some(v=>v.preorder===true))?p.releaseMonth??'':'',(p.preorder||p.variants?.some(v=>v.preorder===true))?p.releasePeriod||'':'',v?.stock??'',typeof v?.preorder==='boolean'?(v.preorder?1:0):'']);
  }
  return rows;
 }
@@ -426,6 +435,7 @@ function workbookFor(data){
   ['受注予約(任意)','任意','1 = 予約 / 0または空欄 = 通常'],
   ['在庫数(任意)','任意','バリエーションなしの商品だけに適用。バリエーション付き商品の総在庫値は参考用で、購入制限に使用しません。'],
   ['バリエーション在庫数(任意)','任意','各サブコードの個別在庫。空欄は無制限、0は完売。'],
+  ['バリエーション受注予約(任意)','任意','1=そのバリエーションだけ予約 / 0=通常 / 空欄=商品全体の設定に従う。'],
   ['サブコード(任意)','任意','末尾のみ（例 BK）。商品ID_ を自動で付けます。'],
   ['バリエーション項目(任意)','任意','例：カラー：ブラック、サイズ：M'],
   ['バリエーションごとの通常価格(任意)','任意','未入力なら商品の税込価格を使用'],
@@ -442,7 +452,7 @@ function workbookFor(data){
  const sheets=[['使い方',how],['商品登録',[headers,...data]],['入力例',[headers,...sample]],['項目説明',about]];
  for(const [name,rows] of sheets){
   const ws=X.utils.aoa_to_sheet(rows);ws['!cols']= name==='商品登録'||name==='入力例'?headers.map((h,i)=>({wch:Math.min(i===10?24:24,Math.max(13,h.length+2))})):[{wch:33},{wch:90}];
-  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:V'+Math.max(2,rows.length)};
+  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:W'+Math.max(2,rows.length)};
   X.utils.book_append_sheet(wb,ws,name);
  }
  return wb;
@@ -471,12 +481,13 @@ function parseWorkbook(bytes){
   let entry=entries.get(id);
   if(entry&&entry.key!==flatKey)throw Error((i+1)+'行目：同じIDの基本項目が他の行と異なります。');
   if(!entry){entry={key:flatKey,base,variants:[]};entries.set(id,entry);}
-  const sub=get(9),variantName=get(10),price=get(11),eventPrice=get(12),variantStock=get(21);
-  if(sub||variantName||price||eventPrice||variantStock){
+  const sub=get(9),variantName=get(10),price=get(11),eventPrice=get(12),variantStock=get(21),variantPreorder=get(22);
+  if(variantPreorder&&!['0','1'].includes(variantPreorder))throw Error((i+1)+'行目：バリエーション受注予約は0か1、または空欄です。');
+  if(sub||variantName||price||eventPrice||variantStock||variantPreorder){
    if(!sub||!variantName)throw Error((i+1)+'行目：サブコード末尾とバリエーション名をセットで記入してください。');
    if(sub.startsWith(id+'_')&&!legacyTemplate)throw Error((i+1)+'行目：サブコード欄には商品IDを入れず、BKなど末尾だけを入力してください。');
    const code=(legacyTemplate&&sub.startsWith(id+'_')?sub.slice(id.length+1):sub).toUpperCase();
-   entry.variants.push({code,name:variantName,price,eventPrice,stock:variantStock});
+   entry.variants.push({code,name:variantName,price,eventPrice,stock:variantStock,preorder:variantPreorder===''?null:variantPreorder==='1'});
   }
  }
  if(entries.size>maxProducts)throw Error('一度に登録できるのは300商品までです。');
@@ -522,7 +533,7 @@ async function publishCatalog(){
    getDocs(coll()),getDoc(catRef()),getDoc(doc(db,'publishedCatalogs',brand.slug))
   ]);
   const source=drafts.docs.map(x=>x.data());
-  for(const p of source.filter(x=>x.active!==false && x.preorder===true))if(!Number.isInteger(p.releaseMonth)||p.releaseMonth<1||p.releaseMonth>12||!['上旬','中旬','下旬'].includes(p.releasePeriod))throw Error('予約商品「'+p.name+'」（'+p.id+'）に発売予定月・時期がありません。商品を編集して保存してください。');
+  for(const p of source.filter(x=>x.active!==false && ((p.variants||[]).length?(p.variants||[]).some(v=>typeof v.preorder==='boolean'?v.preorder:p.preorder===true):p.preorder===true)))if(!Number.isInteger(p.releaseMonth)||p.releaseMonth<1||p.releaseMonth>12||!['上旬','中旬','下旬'].includes(p.releasePeriod))throw Error('予約商品「'+p.name+'」（'+p.id+'）に発売予定月・時期がありません。商品を編集して保存してください。');
   const visible=source.filter(p=>p.active!==false && /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(p.id));
   const ids=new Set(visible.map(p=>p.id));
   const categoryNames=catSnapshot.exists()&&Array.isArray(catSnapshot.data().categories)
@@ -532,7 +543,7 @@ async function publishCatalog(){
   const exposed=visible.map(p=>({
    id:p.id,name:p.name,categoryId:p.categoryName,price:p.price,
    eventPrice:p.eventPrice??null,preorder:p.preorder===true,releaseMonth:p.releaseMonth??null,releasePeriod:p.releasePeriod||'',stock:(p.variants||[]).length?null:(p.stock??null),
-   variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null,stock:v.stock??null}))
+   variants:(p.variants||[]).map(v=>({code:v.code,name:v.name,price:v.price??null,eventPrice:v.eventPrice??null,stock:v.stock??null,preorder:typeof v.preorder==='boolean'?v.preorder:null}))
   }));
   // Each product can propose up to 3 combinations. Keep the best discount
   // once when both sides define the same pair. Not an ordered purchase.

@@ -73,7 +73,7 @@ function calculate(parsed,catalog,settings={}){
  const details=items.map(item=>{
   const p=published.get(item.id);if(!p)throw Error('現在公開されていない商品です：'+item.id);
   const v=codeFor(p,item.variant);
-  return {...item,name:p.name,variantName:v?.name||'',unitPrice:priceFor(p,item.variant)};
+  return {...item,name:p.name,variantName:v?.name||'',unitPrice:priceFor(p,item.variant),preorder:typeof v?.preorder==='boolean'?v.preorder:p.preorder===true};
  });
  let amount=0;for(const x of details)amount+=x.unitPrice*x.qty;
  const remaining=new Map(counts);let bundleDiscount=0;
@@ -92,10 +92,14 @@ function calculate(parsed,catalog,settings={}){
  if((mode==='percent'&&(value<1||value>100))||(mode==='amount'&&(value<1||value>100000000)))throw Error('アプリ割引設定が不正です。');
  if(raw.r!==0&&raw.r!==1)throw Error('QRの登録状態が不正です。');
  const registered=raw.r===1;
- const eligible=registered&&base>=minSpend;
+ const hasPreorder=details.some(x=>x.preorder===true);
+ if(hasPreorder&&!registered)throw Error('予約商品はお名前・メールの入力が必須です。購入QRを発行し直してください。');
+ const applyToPreorder=discountSettings.applyToPreorder!==false;
+ const regularSubtotal=details.filter(x=>!x.preorder).reduce((sum,x)=>sum+x.unitPrice*x.qty,0);
+ const discountBase=applyToPreorder?base:(amount>0?Math.floor(base*regularSubtotal/amount):0);
+ const eligible=registered&&discountBase>=minSpend;
  const percent=eligible&&mode==='percent'?value:0;
- const reduction=eligible&&mode==='percent'?Math.min(base,Math.round(base*value/100)):eligible&&mode==='amount'?Math.min(base,value):0;
- const hasPreorder=details.some(x=>published.get(x.id)?.preorder===true);
+ const reduction=eligible&&mode==='percent'?Math.min(discountBase,Math.round(discountBase*value/100)):eligible&&mode==='amount'?Math.min(discountBase,value):0;
  const sh=settings?.shipping||{};
  const shipMode=['threshold','prefecture'].includes(sh.mode)?sh.mode:'all';
  const shipThreshold=shipMode!=='all'?Math.max(0,Math.floor(Number(sh.threshold)||0)):0;
@@ -110,7 +114,7 @@ function calculate(parsed,catalog,settings={}){
  if(!Number.isInteger(raw.a)||raw.s!==base||raw.p!==percent||raw.d!==reduction||raw.a!==finalAmount)throw Error('QRの金額と公開中の割引設定が一致しません。QRを再発行してください。');
  const n=settings?.novelty||{};
  const noveltyMode=['all','minimum','product'].includes(n.mode)?n.mode:'none';
- return {details,amount:finalAmount,discountMode:registered?mode:'none',discountValue:registered?value:0,discountMinSpend:minSpend,discountRegistered:registered,
+ return {details,amount:finalAmount,discountMode:registered?mode:'none',discountValue:registered?value:0,discountMinSpend:minSpend,discountRegistered:registered,discountApplyToPreorder:applyToPreorder,
    hasPreorder,shippingFee,shippingMode:shipMode,shippingThreshold:shipThreshold,shippingCharge:shipCharge,shippingPrefecture,
    noveltyMode,noveltyName:noveltyMode==='none'?'':String(n.name||''),noveltyMinSpend:Number.isInteger(n.minSpend)?n.minSpend:0,noveltyProductId:noveltyMode==='product'?String(n.productId||''):''};
 }
@@ -163,8 +167,10 @@ function reprice(lines,bundles,offer={},beforeAppDiscountOnly=false){
  if(beforeAppDiscountOnly)return base;
  const active=offer.discountRegistered===true;
  const value=Number(offer.discountValue)||0;
- const eligible=active&&base>=Math.max(0,Number(offer.discountMinSpend)||0);
- const discount=eligible&&offer.discountMode==='percent'?Math.min(base,Math.round(base*value/100)):eligible&&offer.discountMode==='amount'?Math.min(base,value):0;
+ const regularSubtotal=lines.filter(x=>x.preorder!==true).reduce((sum,x)=>sum+x.unitPrice*x.qty,0);
+ const discountBase=offer.discountApplyToPreorder===false?(subtotal>0?Math.floor(base*regularSubtotal/subtotal):0):base;
+ const eligibleDiscount=active&&discountBase>=Math.max(0,Number(offer.discountMinSpend)||0);
+ const discount=eligibleDiscount&&offer.discountMode==='percent'?Math.min(discountBase,Math.round(discountBase*value/100)):eligibleDiscount&&offer.discountMode==='amount'?Math.min(discountBase,value):0;
  const hasPreorder=lines.some(x=>x.preorder===true);
  const shippingFee=hasPreorder&&['threshold','prefecture'].includes(offer.shippingMode)&&((offer.shippingThreshold||0)<=0||base<(offer.shippingThreshold||0))?(offer.shippingCharge||0):0;
  return base-discount+shippingFee;
@@ -264,7 +270,7 @@ async function reserveAtScan(parsed,quote){
   if(raw.r===0&&customer&&customer.registered===true)throw Error('注文の登録状態が一致しません。QRを再発行してください。');
   if(latest.hasPreorder && (!customer||customer.hasPreorder!==true||customer.brandId!==user.uid||customer.shipping?.prefecture!==latest.shippingPrefecture))throw Error('予約商品の受付情報が見つかりません。購入QRを再発行してください。');
   checkStock(parsed,stock,privateMap);
-  const originalLines=latest.details.map(x=>({id:x.id,variant:x.variant,qty:x.qty,key:x.key,name:x.name,variantName:x.variantName,unitPrice:x.unitPrice,preorder:catalog.products.some(p=>p.id===x.id&&p.preorder===true)}));
+  const originalLines=latest.details.map(x=>({id:x.id,variant:x.variant,qty:x.qty,key:x.key,name:x.name,variantName:x.variantName,unitPrice:x.unitPrice,preorder:x.preorder===true}));
   const bundles=(catalog.bundles||[]).filter(b=>Array.isArray(b.productIds)&&b.productIds.length===2&&b.productIds.every(id=>counts.has(id))&&Number.isInteger(b.discountAmount)&&b.discountAmount>0)
     .map(b=>({productIds:[...b.productIds],discountAmount:b.discountAmount}));
   if(reprice(originalLines,bundles,latest)!==latest.amount)throw Error('セット割引の計算に不整合があります。');
@@ -293,7 +299,7 @@ async function reserveAtScan(parsed,quote){
   tx.update(refs.stock,{quantities:newQuantities,variantQuantities:newVariantQuantities,updatedAt:serverTimestamp()});
   const data={orderId:raw.o,brandId:user.uid,originalItems:compactItems(items),originalAmount:latest.amount,
    originalLines,remainingLines:originalLines,bundles,items:compactItems(items),amount:latest.amount,status:'reserved',
-   discountMode:latest.discountMode,discountValue:latest.discountValue,discountMinSpend:latest.discountMinSpend,discountRegistered:latest.discountRegistered,
+   discountMode:latest.discountMode,discountValue:latest.discountValue,discountMinSpend:latest.discountMinSpend,discountRegistered:latest.discountRegistered,discountApplyToPreorder:latest.discountApplyToPreorder,
    shippingFee:latest.shippingFee,shippingMode:latest.shippingMode,shippingThreshold:latest.shippingThreshold,shippingCharge:latest.shippingCharge,shippingPrefecture:latest.shippingPrefecture,
    hasPreorder:latest.hasPreorder,hasCustomerData:!!customer,
    noveltyMode:latest.noveltyMode,noveltyName:latest.noveltyName,noveltyMinSpend:latest.noveltyMinSpend,noveltyProductId:latest.noveltyProductId,
@@ -314,7 +320,7 @@ async function loadQr(text){
   if(!snap.exists()||snap.data().brandId!==user.uid)throw Error('このブランドの商品公開が未完了です。');
   const quote=calculate(parsed,snap.data(),settingSnap.exists()&&settingSnap.data().brandId===user.uid?settingSnap.data():{});
   const result=await reserveAtScan(parsed,quote);
-  acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,bundles:result.data.bundles||[],discountMode:result.data.discountMode,discountValue:result.data.discountValue,discountMinSpend:result.data.discountMinSpend,discountRegistered:result.data.discountRegistered,shippingFee:result.data.shippingFee,shippingMode:result.data.shippingMode,shippingThreshold:result.data.shippingThreshold,shippingCharge:result.data.shippingCharge,shippingPrefecture:result.data.shippingPrefecture,hasPreorder:result.data.hasPreorder,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
+  acceptedView({raw:parsed.raw,lines:result.data.remainingLines,amount:result.data.amount,status:result.data.status,bundles:result.data.bundles||[],discountMode:result.data.discountMode,discountValue:result.data.discountValue,discountMinSpend:result.data.discountMinSpend,discountRegistered:result.data.discountRegistered,discountApplyToPreorder:result.data.discountApplyToPreorder,shippingFee:result.data.shippingFee,shippingMode:result.data.shippingMode,shippingThreshold:result.data.shippingThreshold,shippingCharge:result.data.shippingCharge,shippingPrefecture:result.data.shippingPrefecture,hasPreorder:result.data.hasPreorder,noveltyMode:result.data.noveltyMode,noveltyName:result.data.noveltyName,noveltyMinSpend:result.data.noveltyMinSpend,noveltyProductId:result.data.noveltyProductId},result.already);
  }catch(err){
   console.error('MY EXPO BAG QR確認／在庫確保エラー',err);
   const code=String(err?.code||'');

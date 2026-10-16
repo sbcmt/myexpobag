@@ -35,9 +35,11 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   // published on their next authenticated admin visit. Never use FIELDNOTE.
   // Live publication notice for an already-open standalone home-screen app.
   // Checkout QR and registration inputs are never force-dismissed.
+  const liveUnsubscribers=[];
+  window.MEB_STOP_PUBLIC_LIVE=()=>{for(const unsub of liveUnsubscribers.splice(0)){try{unsub();}catch{}}};
   try{
     let catalogSnapshotInitialized=false;
-    onSnapshot(doc(db,'publishedCatalogs',slug),snapshot=>{
+    liveUnsubscribers.push(onSnapshot(doc(db,'publishedCatalogs',slug),snapshot=>{
       if(snapshot.metadata.fromCache)return;
       if(!catalogSnapshotInitialized){catalogSnapshotInitialized=true;return;}
       const next=snapshot.updateTime?.toMillis?.()||0;
@@ -46,12 +48,12 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
         if(typeof window.MEB_CATALOG_REFRESH==='function')window.MEB_CATALOG_REFRESH();
         else window.MEB_CATALOG_REFRESH_PENDING=true;
       }
-    },error=>console.warn('商品更新の購読に失敗',error));
+    },error=>console.warn('商品更新の購読に失敗',error)));
   }catch(error){console.warn('商品更新の確認に失敗',error);}
   try{
     let settingsSnapshotInitialized=false;
     let lastSettingsSignature='';
-    onSnapshot(doc(db,'brandSettings',slug),snap=>{
+    liveUnsubscribers.push(onSnapshot(doc(db,'brandSettings',slug),snap=>{
       if(snap.metadata.fromCache || snap.metadata.hasPendingWrites)return;
       const next=JSON.stringify(snap.exists()?snap.data():{});
       // The first Firestore snapshot is initial state, NOT a changed setting.
@@ -60,7 +62,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
       lastSettingsSignature=next;
       if(typeof window.MEB_CATALOG_REFRESH==='function')window.MEB_CATALOG_REFRESH();
       else window.MEB_CATALOG_REFRESH_PENDING=true;
-    },err=>console.warn('設定の更新通知に失敗',err));
+    },err=>console.warn('設定の更新通知に失敗',err)));
   }catch(err){console.warn(err);}
   const name=typeof handle.displayName==='string'&&handle.displayName.trim()?handle.displayName.trim():'ブランド公開準備中';
   // Published catalog is a deliberate public snapshot. Private drafts and
@@ -117,6 +119,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
   const mode=settings?.discount?.mode||'none';
   const safeDiscount=['none','percent','amount'].includes(mode)?mode:'none';
   const discountValue=Number.isInteger(settings?.discount?.value)&&settings.discount.value>=0?settings.discount.value:0;
+  const appDiscountApplyToPreorder=settings?.discount?.applyToPreorder!==false;
   const discountMinSpend=Number.isInteger(settings?.discount?.minSpend)&&settings.discount.minSpend>=0?settings.discount.minSpend:0;
   const publicBanner=settings?.banner?.imageData&&typeof settings.banner.imageData==='string'&&settings.banner.imageData.length<=210000&&/^data:image\/(?:jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(settings.banner.imageData)?settings.banner.imageData:'';
   // All brands receive a lightweight default banner, including existing brand settings
@@ -139,7 +142,7 @@ window.MEB_LOAD_CUSTOMER_BRAND = async function loadBrand(rawSlug) {
       themePreset:typeof settings?.theme?.preset==='string'?settings.theme.preset:(typeof brandTheme.preset==='string'?brandTheme.preset:'natural'),
       customColors:settings?.theme?{}:(brandTheme.customColors||{})},
     event:{id:slug,name:typeof handle.eventName==='string'?handle.eventName.trim():'',accentLabel:'MY EXPO BAG',
-      appPurchaseDiscountMode:safeDiscount,appPurchaseDiscountValue:discountValue,appPurchaseDiscountMinSpend:discountMinSpend,
+      appPurchaseDiscountMode:safeDiscount,appPurchaseDiscountValue:discountValue,appPurchaseDiscountMinSpend:discountMinSpend,appDiscountApplyToPreorder,
       banner:{enabled:!bannerHidden,imageData:bannerImage,link:bannerLink}},
     categories,products,bundles,shipping,checkout,
     novelty:{enabled:noveltyMode!=='none',mode:noveltyMode,name:noveltyMode!=='none'?String(settings.novelty.name||''):'',minSpend:noveltyMode==='minimum'?settings.novelty.minSpend:0,productId:noveltyId},
