@@ -5,8 +5,8 @@ const $=id=>document.getElementById(id);
 const cfg=window.MEB_FIREBASE_CONFIG||{};
 const pageSizes={A1:[594,841],A2:[420,594],A3:[297,420],A4:[210,297],A5:[148,210]};
 const state={db:null,user:null,brand:null,slug:'',brandName:'',customerUrl:'',template:null,logo:null,qrCanvas:null};
-const templatePath='./assets/pop-template-no-qr.png?v=20261016-balanced-v104';
-const logoPath='./assets/pop-qr-logo.png?v=20261016-balanced-v104';
+const templatePath='./assets/pop-template-no-qr.png?v=20261016-inkcenter-v105';
+const logoPath='./assets/pop-qr-logo.png?v=20261016-inkcenter-v105';
 function setStatus(msg,error=false,target='status'){const el=$(target); if(el){el.textContent=msg; el.className='status '+(error?'error':'good');}}
 function loadImage(src){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('画像を読み込めません: '+src));img.src=src;});}
 function customerUrlFor(slug){const url=new URL('./index.html',location.href);url.searchParams.set('brand',slug);return url.href;}
@@ -26,29 +26,47 @@ function renderQrCanvas(text,size=1080){
 }
 function addLogoToQr(baseCanvas,logoImage){const c=document.createElement('canvas'); c.width=baseCanvas.width; c.height=baseCanvas.height; const ctx=c.getContext('2d'); ctx.drawImage(baseCanvas,0,0); const s=Math.round(c.width*0.18); const x=(c.width-s)/2, y=(c.height-s)/2; const radius=Math.round(s*0.18); ctx.fillStyle='#fff'; roundRect(ctx,x,y,s,s,radius); ctx.fill(); ctx.save(); roundRect(ctx,x,y,s,s,radius); ctx.clip(); ctx.drawImage(logoImage,x+Math.round(s*0.07),y+Math.round(s*0.07),Math.round(s*0.86),Math.round(s*0.86)); ctx.restore(); return c; }
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
-// The APPROVED background already contains a white rounded card: no new card may be painted.
-// Measured bounds in the 1054x1492 source image. All offsets are calculated from this rectangle.
+// Place the visible ink, not the outer QR bitmap, at the center of the
+// white rounded card in the approved QR-free image. No second white box.
 const POSTER_BASE_W=1054,POSTER_BASE_H=1492;
 const WHITE_CARD={left:346,top:638,right:677,bottom:978};
-// Exact rectangle center: (511.5,808), QR is a square, so the vertical margin is
-// naturally ~4 px greater than the horizontal margin on this slightly taller frame.
-// Use full QR canvas (which already contains the mandatory white quiet zone).
-const QR_PRINT_SIZE=306;
-function posterQrGeometry(width,height){
+const QR_INK_SIZE=247;
+let cachedInkBounds=null;
+function findQrInkBounds(qrCanvas){
+ if(cachedInkBounds?.canvas===qrCanvas)return cachedInkBounds;
+ const {width,height}=qrCanvas;
+ const data=qrCanvas.getContext('2d',{willReadFrequently:true}).getImageData(0,0,width,height).data;
+ let minX=width,minY=height,maxX=-1,maxY=-1;
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+  const p=(y*width+x)*4;
+  if(data[p]<55&&data[p+1]<55&&data[p+2]<55&&data[p+3]>245){
+   if(x<minX)minX=x;if(x>maxX)maxX=x;
+   if(y<minY)minY=y;if(y>maxY)maxY=y;
+  }
+ }
+ if(maxX<minX||maxY<minY)throw Error('QRの位置を確認できませんでした。');
+ cachedInkBounds={canvas:qrCanvas,minX,minY,maxX,maxY};
+ return cachedInkBounds;
+}
+function posterQrGeometry(w,h,qrCanvas){
+ const b=findQrInkBounds(qrCanvas);
+ const inkWidth=b.maxX-b.minX+1,inkHeight=b.maxY-b.minY+1;
+ const scale=QR_INK_SIZE/Math.max(inkWidth,inkHeight);
  const centerX=(WHITE_CARD.left+WHITE_CARD.right)/2;
  const centerY=(WHITE_CARD.top+WHITE_CARD.bottom)/2;
- return {x:(centerX-QR_PRINT_SIZE/2)*width/POSTER_BASE_W,
-         y:(centerY-QR_PRINT_SIZE/2)*height/POSTER_BASE_H,
-         w:QR_PRINT_SIZE*width/POSTER_BASE_W,
-         h:QR_PRINT_SIZE*height/POSTER_BASE_H};
+ const inkCenterX=(b.minX+b.maxX+1)/2;
+ const inkCenterY=(b.minY+b.maxY+1)/2;
+ return {x:(centerX-inkCenterX*scale)*w/POSTER_BASE_W,
+         y:(centerY-inkCenterY*scale)*h/POSTER_BASE_H,
+         w:qrCanvas.width*scale*w/POSTER_BASE_W,
+         h:qrCanvas.height*scale*h/POSTER_BASE_H};
 }
 function composePoster(targetCanvas,template,qrCanvas){
  const ctx=targetCanvas.getContext('2d'),w=targetCanvas.width,h=targetCanvas.height;
  ctx.clearRect(0,0,w,h);
  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
  ctx.drawImage(template,0,0,w,h);
- const pos=posterQrGeometry(w,h);
- // Never draw extra white frames, strokes or translated QR layers.
+ const pos=posterQrGeometry(w,h,qrCanvas);
  ctx.save();ctx.imageSmoothingEnabled=false;
  ctx.drawImage(qrCanvas,pos.x,pos.y,pos.w,pos.h);
  ctx.restore();

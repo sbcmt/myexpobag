@@ -39,7 +39,6 @@ const localDate=(date)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo',y
 const localStamp=date=>new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(date);
 const dateOf=x=>x?.toDate?.()|| (typeof x==='string'?new Date(x):null);
 const validDate=x=>x instanceof Date&&!Number.isNaN(x.getTime());
-function selectedByDate(d){if(!validDate(d))return false;const date=localDate(d),from=$('from').value,to=$('to').value;return (!from||date>=from)&&(!to||date<=to);}
 async function fetchAll(ref,ordering){
  let last=null,records=[];
  for(let batch=0;batch<200;batch++){
@@ -50,7 +49,7 @@ async function fetchAll(ref,ordering){
   last=page.docs.at(-1);
   message(`${records.length}件まで読み込み中…`);
  }
- throw Error('大量データの取得上限に達しました。日付指定だけでなく、バックエンドで分割処理が必要です。');
+ throw Error('大量データの取得上限に達しました。バックエンドで分割処理が必要です。');
 }
 function csvCell(value){let s=String(value??'');if(/^[\s\uFEFF]*[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}
 function writeCsv(filename,header,rows){
@@ -61,7 +60,7 @@ function writeCsv(filename,header,rows){
 function nameFor(type,ext='csv'){return `MY_EXPO_BAG_${brand.slug}_${type}_${localDate(new Date()).replaceAll('-','')}.${ext}`;}
 const receiptState=id=>sales.find(s=>s.orderId===id)?.status||'QR発行済み（未受付）';
 function renderHistory(){
- // Status and count are scoped to the selected JST date range; do not change other periods.
+ // All history for this brand; CSV includes dates for later filtering in Excel.
  const configs=[
   {data:selectedCustomers,id:'customer-history',className:'registration-select',select:'select-customers',del:'delete-customers',count:'customer-selection-count',type:'customer'},
   {data:selectedSales,id:'sales-history',className:'sale-select',select:'select-sales',del:'delete-sales',count:'sales-selection-count',type:'sale'}
@@ -130,7 +129,7 @@ async function deleteHistory(type){
    }catch(err){errors.push(id+'：'+(err.message||err));}
   }
   refreshCounts();
-  message(description+' '+done+'件を削除しました。'+(errors.length?'\n失敗：'+errors.join('\n'):'')+'\n期間中の集計とCSV出力に反映されています。',errors.length>0);
+  message(description+' '+done+'件を削除しました。'+(errors.length?'\n失敗：'+errors.join('\n'):'')+'\n全期間の集計とCSV出力に反映されています。',errors.length>0);
  }finally{lock(false);refreshCounts();}
 }
 function refreshCounts(){
@@ -166,7 +165,7 @@ $('delete-selected').onclick=async()=>{
   refreshCounts();message(done+'件の個人情報を削除しました。'+(errors.length?'\n失敗：'+errors.join('\n'):'') ,!!errors.length);
  }finally{lock(false);}
 };
-async function reload(){if(!owner||busy)return;if($('from').value&&$('to').value&&$('from').value>$('to').value){message('日付の開始・終了が逆です。',true);return;}
+async function reload(){if(!owner||busy)return;
  lock(true);message('Firebaseの注文履歴を取得しています…');try{
   const [allCustomers,allSales]=await Promise.all([
    fetchAll(collection(db,'customerOrders',brand.slug,'orders'),'createdAt'),
@@ -174,9 +173,9 @@ async function reload(){if(!owner||busy)return;if($('from').value&&$('to').value
   ]);
   customers=allCustomers.filter(x=>x.brandId===owner.uid);
   sales=allSales.filter(x=>x.brandId===owner.uid);
-  selectedCustomers=customers.filter(x=>selectedByDate(dateOf(x.createdAt)));
-  selectedSales=sales.filter(x=>selectedByDate(dateOf(x.scanTime)));
-  message(`読込完了：登録者 ${customers.length}件・販売記録 ${sales.length}件。対象期間のCSVを保存できます。`);
+  selectedCustomers=[...customers];
+  selectedSales=[...sales];
+  message(`全期間の読込完了：登録者 ${customers.length}件・販売記録 ${sales.length}件。CSVを保存できます。`);
   refreshCounts();
  }catch(err){console.error(err);message('履歴の取得に失敗しました。認証・Firestoreルールを確認してください：'+(err.message||err),true);}finally{lock(false);}
 }
