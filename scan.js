@@ -441,12 +441,30 @@ async function startCamera(){
  cameraStarting=true;$('camera-start').disabled=true;
  try{
   await ensureScannerLibrary();
-  await stopCamera();scanner=new window.Html5Qrcode('reader');
-  await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:225,height:225}},async text=>{
+  await stopCamera();
+  const onDecoded=async text=>{
    if(working||stage!=='scan')return;
-   working=true;await stopCamera();working=false;
+   working=true;
+   try{await stopCamera();}finally{working=false;}
    await loadQr(text);
-  },()=>{});
+  };
+  const opts={fps:8,qrbox:{width:225,height:225}};
+  // The environment-facing constraint is not supported by every browser/camera.
+  // Retry with a physical camera ID if the browser rejects that constraint.
+  let firstError=null;
+  try{
+   scanner=new window.Html5Qrcode('reader');
+   await scanner.start({facingMode:'environment'},opts,onDecoded,()=>{});
+  }catch(err){
+   firstError=err;
+   await stopCamera();
+   if(err?.name==='NotAllowedError'||err?.name==='SecurityError')throw err;
+   const cameras=await window.Html5Qrcode.getCameras();
+   if(!cameras?.length)throw firstError;
+   const preferred=cameras.find(c=>/back|rear|environment|背面|後面/i.test(c.label||''))||cameras[cameras.length-1];
+   scanner=new window.Html5Qrcode('reader');
+   await scanner.start(preferred.id,opts,onDecoded,()=>{});
+  }
   $('camera-stop').disabled=false;say('QRをカメラ枠に合わせてください。');
  }catch(err){console.error('QRカメラ起動エラー',err);
    const msg=err?.name==='NotAllowedError'?'カメラの利用が許可されていません。ブラウザのカメラ権限を確認してください。':
