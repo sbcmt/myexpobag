@@ -38,7 +38,7 @@
     .navpanel[hidden]{display:none}.setting-item{display:flex;align-items:center;justify-content:space-between;text-decoration:none;background:#f2f7fa;padding:14px;border:1px solid #d9e4e9;border-radius:11px;gap:12px;font-size:14px;font-weight:650}
     .setting-item small{display:block;color:#637782;margin-top:5px;font-size:11px;font-weight:400}
     .setting-item span:last-child{color:#007b9f;font-size:21px}
-    .admin-menu{display:flex;flex-direction:column;gap:3px}.menu-link,.menu-disabled,.setting-group summary{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;text-align:left;border:0;border-radius:9px;padding:13px 14px;font-size:14px;background:#f2f7fa;color:#152b37;text-decoration:none;font-weight:650;min-height:48px}.menu-link[hidden]{display:none!important}.menu-link:hover,.setting-group summary:hover{background:#e5f1f7}.menu-disabled{color:#546771;background:#f7f9fa}.menu-disabled small{color:#7d8b94;font-size:11px;white-space:nowrap}.setting-group summary{cursor:pointer;list-style:none}.setting-group summary::-webkit-details-marker{display:none}.setting-group .expand-hint{font-weight:400;color:#5c7888;font-size:12px}.submenu{margin-left:14px;border-left:2px solid #dfebf1;padding-left:9px;margin-top:4px;display:flex;flex-direction:column;gap:3px}.submenu .menu-disabled{font-size:13px;background:#fff;border:1px solid #e5edf1}.setting-group[open] summary{background:#dfedf4}.panel-top{display:flex;justify-content:space-between;align-items:center;gap:10px}.panel-top h2{margin:0}.small-back{background:#f0f6f8;border:1px solid #d6e5ec;border-radius:8px;font-size:12px;padding:8px 10px}.select-all{display:flex;align-items:center;gap:9px;padding:12px 8px;border-bottom:1px solid #d8e2e8;font-size:13px}.select-all input,.product-row input{width:18px;height:18px;accent-color:#147794;flex:0 0 auto}.product-selection{display:flex;flex-direction:column}.product-row{display:flex;gap:10px;align-items:center;padding:11px 8px;border-bottom:1px solid #ecf0f2;font-size:13px}.product-row>span{flex:1}.product-row strong{display:block}.product-row small{display:block;color:#72828b;margin-top:3px}.preview-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.preview-action{background:#1c3645;color:#fff;border:0;border-radius:9px;font-size:12px;padding:12px 6px}.preview-action.secondary{background:#36566a}.preview-action:disabled{opacity:.4;cursor:not-allowed}
+    .admin-menu{display:flex;flex-direction:column;gap:3px}.menu-link,.menu-disabled,.setting-group summary{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;text-align:left;border:0;border-radius:9px;padding:13px 14px;font-size:14px;background:#f2f7fa;color:#152b37;text-decoration:none;font-weight:650;min-height:48px}.menu-link[hidden]{display:none!important}.menu-link:hover,.setting-group summary:hover{background:#e5f1f7}.menu-disabled{color:#546771;background:#f7f9fa}.menu-disabled small{color:#7d8b94;font-size:11px;white-space:nowrap}.setting-group summary{cursor:pointer;list-style:none}.setting-group summary::-webkit-details-marker{display:none}.setting-group .expand-hint{font-weight:400;color:#5c7888;font-size:12px}.submenu{margin-left:14px;border-left:2px solid #dfebf1;padding-left:9px;margin-top:4px;display:flex;flex-direction:column;gap:3px}.submenu .menu-disabled{font-size:13px;background:#fff;border:1px solid #e5edf1}.setting-group[open] summary{background:#dfedf4}.panel-top{display:flex;justify-content:space-between;align-items:center;gap:10px}.panel-top h2{margin:0}.small-back{background:#f0f6f8;border:1px solid #d6e5ec;border-radius:8px;font-size:12px;padding:8px 10px}.select-all{display:flex;align-items:center;gap:9px;padding:12px 8px;border-bottom:1px solid #d8e2e8;font-size:13px}.select-all input,.product-row input{width:18px;height:18px;accent-color:#147794;flex:0 0 auto}.product-selection{display:flex;flex-direction:column}.product-row{display:flex;gap:10px;align-items:center;padding:11px 8px;border-bottom:1px solid #ecf0f2;font-size:13px}.product-row>span{flex:1}.product-row strong{display:block}.product-row small{display:block;color:#72828b;margin-top:3px}.preview-actions{display:grid;grid-template-columns:1fr;gap:8px}.preview-action{background:#1c3645;color:#fff;border:0;border-radius:9px;font-size:12px;padding:12px 6px}.preview-action.secondary{background:#36566a}.preview-action:disabled{opacity:.4;cursor:not-allowed}
 
     footer{text-align:center;color:#83909a;font-size:11px;padding-top:15px}footer strong{color:#475966}
     @media(max-width:560px){.header{align-items:flex-start}.controls{max-width:42%;gap:6px}.controls button{padding:8px 10px;font-size:11px}.brand h1{font-size:14px}.brand small{font-size:10px}}@media(max-width:400px){.brand h1{font-size:13px}.controls{max-width:45%}.controls button{padding:8px;font-size:11px;min-height:38px}.brand img{width:36px;height:36px}}
@@ -74,6 +74,11 @@
 </details>
 <a class="menu-link" href="./account.html" id="account-link"><span>アカウント情報</span><span aria-hidden="true">›</span></a>
 <a class="menu-link" href="./index.html" id="customer-page-link" rel="noopener noreferrer" target="_blank"><span>お客様ページを見る</span><span aria-hidden="true">↗</span></a>
+<div id="customer-browser-help" hidden>
+<p class="muted">ホーム画面のアプリからSafari等が開かない場合は、URLをコピーしてブラウザのアドレス欄に貼り付けてください。</p>
+<button class="menu-link" id="customer-url-copy" type="button"><span>お客様ページのURLをコピー</span><span aria-hidden="true">⧉</span></button>
+<p class="muted" id="customer-url-copy-status" role="status"></p>
+</div>
 <button class="menu-link" hidden="" id="logout-btn" type="button"><span>ログアウト</span><span aria-hidden="true">↗</span></button>
 </div>
 </section>
@@ -84,8 +89,7 @@
 <div class="product-selection" id="products-selection-list"></div>
 <p aria-live="polite" class="muted" id="product-selected-count">選択数：0商品</p>
 <div class="preview-actions">
-<button class="preview-action" disabled="" id="preview-light" type="button">ホワイトでプレビュー・印刷</button>
-<button class="preview-action secondary" disabled="" id="preview-dark" type="button">アクセントでプレビュー・印刷</button>
+<button class="preview-action" disabled="" id="preview-pricecards" type="button">プレビュー</button>
 </div>
 <button class="preview-action" disabled="" id="download-product-qr" style="width:100%;margin-top:10px;background:#146076" type="button">選択した商品QRをZIPで保存</button>
 <p class="muted" id="product-qr-export-status" role="status"></p>
@@ -112,7 +116,7 @@
       const all=document.getElementById('product-check-all');
       const list=document.getElementById('products-selection-list');
       const count=document.getElementById('product-selected-count');
-      const previewBtns=[document.getElementById('preview-light'),document.getElementById('preview-dark')];
+      const previewBtn=document.getElementById('preview-pricecards');
       let data=[]; // Authenticated brand product list is injected by admin-product-qr.js.
       const yen=n=>'¥'+Math.round(n).toLocaleString('ja-JP');
       const currentSelected=()=>[...list.querySelectorAll('input[data-id]:checked')].map(el=>el.dataset.id);
@@ -121,7 +125,7 @@
         count.textContent=`選択数：${n}商品`;
         all.checked=data.length>0&&n===data.length;
         all.indeterminate=n>0&&n<data.length;
-        previewBtns.forEach(b=>{b.disabled=n===0;});
+        previewBtn.disabled=n===0;
         document.getElementById('download-product-qr').disabled=n===0;
       };
       window.MEB_SET_PRODUCT_QR_LIST=(items)=>{
@@ -169,13 +173,27 @@
         qrPanel.scrollIntoView({block:'start',behavior:'smooth'});
       });
 
-      previewBtns.forEach((btn,i)=>btn.addEventListener('click',()=>{
+      previewBtn.addEventListener('click',()=>{
         const ids=currentSelected();if(!ids.length)return;
         const url=new URL('./pricecards.html',location.href);
-        url.searchParams.set('ids',ids.join(','));url.searchParams.set('style',i?'accent':'white');
-        window.open(url.href,'_blank','noopener,noreferrer');
-      }));
+        url.searchParams.set('ids',ids.join(','));url.searchParams.set('style','accent');
+        // The preview already has its own 管理ページ return link.
+        location.assign(url.href);
+      });
       sync();
+      // Standalone iOS apps cannot reliably force another browser to open.
+      // Keep the genuine external/new-context link above and provide a safe
+      // copy-to-Safari fallback only when launched from the Home Screen.
+      const standalone=window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone===true;
+      if(standalone){
+        document.getElementById('customer-browser-help').hidden=false;
+        document.getElementById('customer-url-copy').addEventListener('click',async()=>{
+          const href=document.getElementById('customer-page-link').href;
+          const status=document.getElementById('customer-url-copy-status');
+          try{await navigator.clipboard.writeText(href);status.textContent='URLをコピーしました。Safari等に貼り付けて開いてください。';}
+          catch{window.prompt('このURLをコピーしてSafari等で開いてください。',href);status.textContent='URLを表示しました。';}
+        });
+      }
       // The customer link is set from the authenticated brand by admin-auth.js,
       // never from a visitor-controlled URL parameter.
     })();
