@@ -37,7 +37,7 @@
 <div class="cols"><div class="field"><label for="product-price">通常価格（税込・円）</label><input id="product-price" max="100000000" min="0" placeholder="4800" required="" step="1" type="number"/></div><div class="field"><label for="product-event-price">展示会限定価格（税込・円・任意）</label><input id="product-event-price" max="100000000" min="0" placeholder="4200" step="1" type="number"/></div></div>
 <div class="variant-block"><div class="toolbar"><strong>バリエーション（任意）</strong><span class="muted">カラー・サイズなど／画像は商品共通／行ごとに予約チェック可</span></div>
 <div id="variant-rows"></div><button id="add-variant" type="button">＋ バリエーションを追加</button>
-<p class="hint">最初は3行表示します。使わない行は空欄のままで大丈夫です。サブコードは <code>BK</code> のような末尾だけを入力してください。<code>商品ID_BK</code> を自動生成します。</p></div>
+<p class="hint" id="variant-entry-hint" hidden>「＋ バリエーションを追加」を押すと入力欄が1行表示されます。使わない場合は追加不要です。サブコードは <code>BK</code> のような末尾だけを入力してください。<code>商品ID_BK</code> を自動生成します。</p></div>
 <div class="cols"><div class="field"><label for="product-jan">JANコード（任意）</label><input id="product-jan" inputmode="numeric" maxlength="14" placeholder="例：4901234567894"/></div><div class="field"><label for="product-stock">在庫数（バリエーションなしは販売上限／ありは参考合計）</label><input id="product-stock" max="100000000" min="0" placeholder="カラーごとの在庫を入力すると参考合計を表示" step="1" type="number"/><p aria-live="polite" class="hint" id="product-stock-hint">バリエーションなしの商品は手入力できます。空欄は上限なしです。</p></div></div>
 <label class="checkline"><input id="product-preorder" type="checkbox"/> 受注予約の商品にする</label>
 <div class="variant-block" hidden="" id="release-settings"><div class="toolbar"><strong>発売予定（予約商品・予約バリエーションで必須）</strong></div>
@@ -46,17 +46,19 @@
 <p class="hint">例：10月中旬予定。バリエーションの一部だけを受注予約する場合にも共通の発売予定を入力してください。</p></div>
 <div class="variant-block"><div class="toolbar"><strong>組合せ商品（任意）</strong><span class="muted" id="combo-count">0 / 3件</span></div>
 <div id="combo-rows"></div><button id="add-combo" type="button">＋ 組合せ商品を追加</button>
-<p class="hint">最大3件まで設定できます。相手の商品IDと、組合せ購入時の割引額（円）を入力します。使わない行は空欄にしてください。</p></div>
+<p class="hint" id="combo-entry-hint" hidden>最大3件まで設定できます。相手の商品IDと、組合せ購入時の割引額（円）を入力します。</p></div>
 <div class="field"><label for="product-image">商品画像（任意・商品IDごとに1枚）</label>
 <div class="image-line"><img alt="商品画像プレビュー" class="photo-preview" hidden="" id="product-image-preview"/><div><input accept="image/*,.heic,.heif" id="product-image" style="max-width:310px" type="file"/><div class="image-note" id="product-image-hint">推奨：JPG・PNG・WebP／各15MB以下、ZIP最大50MB</div></div></div>
 </div>
+<label class="checkline"><input id="product-novelty" type="checkbox"/> この商品をノベルティ対象商品にする（初期設定：対象外）</label>
+<p class="hint">対象商品を複数選ぶ場合は「設定 → ⑤ ノベルティ」でも一覧からチェックできます。ノベルティの配布条件と名称は設定画面で登録してください。</p>
 <label class="checkline"><input checked="" id="product-active" type="checkbox"/> この商品をお客様ページに表示する（公開時に反映）</label>
 <div class="row"><button class="primary" id="product-save" type="submit">商品を保存</button><button id="product-clear" type="button">入力をクリア</button><span class="muted" id="edit-note">新規登録</span></div>
 </form></section>
 <section class="card"><div class="toolbar"><h2>登録済み商品 <span id="product-count">0</span>件</h2><button id="refresh-products" type="button">一覧を更新</button></div><div class="product-list" id="product-list"><p class="muted">商品はまだ登録されていません。</p></div></section>
 <section class="card"><h2>Excel（.xlsx）一括登録</h2>
-<div class="row" style="margin-bottom:12px"><button id="download-xlsx" type="button">ExcelテンプレートをDL</button><button id="export-xlsx" type="button">登録商品をExcelでDL</button></div>
-<div class="field"><label for="import-file">一括登録ファイル</label><input accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" id="import-file" type="file"/></div>
+<div class="row" style="margin-bottom:12px"><button id="download-xlsx" type="button">ExcelテンプレートをDL</button><button id="export-xlsx" type="button">登録商品をExcelでDL</button><button id="download-csv" type="button">CSVテンプレートをDL</button><button id="export-csv" type="button">登録商品をCSVでDL</button></div>
+<div class="field"><label for="import-file">一括登録ファイル（Excel .xlsx / CSV .csv）</label><input accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" id="import-file" type="file"/></div>
 <div class="preview" hidden="" id="import-preview"></div>
 <div class="row" style="margin-top:12px"><button class="primary" disabled="" id="import-save" type="button">確認した商品を登録</button><span class="muted">1回300商品まで</span></div>
 <div style="border-top:1px solid #e1e8ed;margin-top:22px;padding-top:18px">
@@ -103,6 +105,6 @@
   },15000);
 })();
 </script>
-<script onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()" src="./products.js?asset=20261016-publish-v109" type="module"></script>
+<script onerror="window.MEB_PRODUCTS_STARTUP_ERROR?.()" src="./products.js?asset=20261019-expand-fields-02" type="module"></script>
 <div class="meb-copyright">© 2021–2026 dobhar-chu</div>
 </body></html>
