@@ -201,8 +201,8 @@ function variantRow(values={}){
  const row=document.createElement('div');row.className='variant-entry';row.style.cssText='border-bottom:1px dashed #d7e2e8;padding:8px 0';
  const main=document.createElement('div');main.className='variant-row';
  const make=(label,cls,placeholder,value)=>{const wrap=document.createElement('div');wrap.className='field';const lb=document.createElement('label');lb.textContent=label;const input=document.createElement('input');input.className=cls;input.type='text';input.autocomplete='off';input.placeholder=placeholder;input.value=value??'';wrap.append(lb,input);return wrap;};
- main.append(make('バリエーション名','variant-name','例：ブラック / M',values.name));
- const code=make('サブコード（任意部分のみ）','variant-code','例：BK',values.code);const codeInput=code.querySelector('input');codeInput.maxLength=25;
+ main.append(make('バリエーション名（登録時必須）','variant-name','例：ブラック / M',values.name));
+ const code=make('サブコード（登録時必須・末尾のみ）','variant-code','例：BK',values.code);const codeInput=code.querySelector('input');codeInput.maxLength=25;
  const codeBox=document.createElement('div');codeBox.className='subcode-input';const prefix=document.createElement('span');prefix.className='subcode-prefix';prefix.textContent=(trim($('product-id').value)||'商品ID')+'_';
  codeBox.append(prefix,codeInput);codeBox.classList.add('subcode-input');code.querySelector('label').after(codeBox);main.append(code);
  const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.className='danger';remove.addEventListener('click',()=>{row.remove();updateTotalStockField();toggleRelease();updateVariantVisibility();});main.append(remove);row.append(main);
@@ -261,7 +261,7 @@ function comboRow(values={}){
  const el=document.createElement('div');el.className='combo-entry';el.style.cssText='border-bottom:1px dashed #d7e2e8;padding:9px 0';
  const fields=document.createElement('div');fields.className='cols';
  const make=(label,cls,value,placeholder,type='text')=>{const wrap=document.createElement('div');wrap.className='field';const lb=document.createElement('label');lb.textContent=label;const input=document.createElement('input');input.className=cls;input.type=type;input.value=value??'';input.placeholder=placeholder;if(type==='number'){input.min='0';input.step='1';input.max='100000000'}else input.maxLength=40;wrap.append(lb,input);return wrap;};
- fields.append(make('組合せ商品ID（任意）','combo-id',values.productId,'例：BG-002'));
+ fields.append(make('組合せ商品ID（登録時必須）','combo-id',values.productId,'例：BG-002'));
  fields.append(make('組合せ時割引金額（税込・円）','combo-discount',values.discount??'','例：500','number'));
  const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.className='danger';remove.style.marginBottom='10px';remove.addEventListener('click',()=>{el.remove();updateComboAddButton()});
  el.append(fields,remove);return el;
@@ -402,15 +402,15 @@ async function deleteProduct(id){
   if(brandSettingsExists)batch.set(brandSettingsRef(),{novelty:{productIds:nextIds,productId:nextIds[0]||''},updatedAt:serverTimestamp()},{merge:true});await batch.commit();products.delete(id);imageKnown.delete(id);render();if($('product-id').value===id)clearForm();status('商品を削除しました。');}
  catch(err){console.error(err);status('商品を削除できませんでした。',true);}finally{setBusy(false);}
 }
-// Japanese 24-column workbook/CSV. Old 15/23-column files remain readable.
-const headers=['カテゴリ','ID','商品名','税込価格','表示/非表示','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(任意)','バリエーション項目(任意)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(任意)','組合せ時割引金額(任意)','組合せ商品ID2(任意)','組合せ時割引金額2(任意)','組合せ商品ID3(任意)','組合せ時割引金額3(任意)','発売予定月(予約時必須)','発売予定時期(予約時必須)','バリエーション在庫数(任意)','バリエーション受注予約(任意)','ノベルティ対象(任意)'];
+// 商品一括登録はCSV専用。既存形式の見出しも読み取れるようにする。
+// 区分を分かりやすくするため、必須と条件付き必須を列名に明記する。
+const headers=['カテゴリ(必須)','ID(必須)','商品名(必須)','税込価格(必須)','表示/非表示(必須)','JANコード(任意)','展示会特価(任意)','受注予約(任意)','在庫数(任意)','サブコード(バリエーション時必須)','バリエーション項目(バリエーション時必須)','バリエーションごとの通常価格(任意)','バリエーションごとの展示会特価(任意)','組合せ商品ID(組合せ時必須)','組合せ時割引金額(任意)','組合せ商品ID2(組合せ時必須)','組合せ時割引金額2(任意)','組合せ商品ID3(組合せ時必須)','組合せ時割引金額3(任意)','発売予定月(予約時必須)','発売予定時期(予約時必須)','バリエーション在庫数(任意)','バリエーション受注予約(任意)','ノベルティ対象(任意)'];
 const sample=[
- ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','BK','カラー：ブラック','','','BG-002',500,'TB-003',300,'', ''],
- ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','KH','カラー：カーキ','','','BG-002',500,'TB-003',300,'', ''],
- ['バッグ','BG-002','キャンバスバッグ',3200,1,'','','','','','','','','','','','','',''],
- ['テーブル','TB-003','サイドテーブル',5900,1,'','','','','','','','','','','','','','','','']
-].map((row,index)=>[...Array.from({length:23},(_,i)=>row[i]??''),index<2?1:0]);
-function xlsx(){if(!window.XLSX)throw Error('Excelライブラリが読み込めません。通信環境を確認し、ページを再読み込みしてください。');return window.XLSX;}
+ ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','BK','カラー：ブラック','','','BG-002',500,'TB-003',300,'','','','','','',1],
+ ['ランタン','LT-001','LEDランタン',4800,1,'',4200,0,'','KH','カラー：カーキ','','','BG-002',500,'TB-003',300,'','','','','','',1],
+ ['バッグ','BG-002','キャンバスバッグ',3200,1,'','','','','','','','','','','','','','','','','','',0],
+ ['テーブル','TB-003','サイドテーブル',5900,1,'','','','','','','','','','','','','','','','','','','']
+];
 function spreadsheetRows(){
  const rows=[];
  for(const p of [...products.values()].sort((a,b)=>a.id.localeCompare(b.id,'ja'))){
@@ -420,70 +420,11 @@ function spreadsheetRows(){
  }
  return rows;
 }
-function workbookFor(data){
- const X=xlsx(),wb=X.utils.book_new();
- const how=[
-  ['MY EXPO BAG v1.0.1｜商品登録ガイド',''],
-  ['手順 1','「商品登録」シートに必要項目を入力します。'],
-  ['手順 2','商品IDは半角英数字・ハイフン(-)・アンダースコア(_)のみ。スラッシュ(/)は使えません。'],
-  ['手順 3','カラーやサイズが複数ある場合、同じIDの行を増やしてサブコードとバリエーション項目を記入します。'],
-  ['手順 4','サブコード欄には末尾だけ記入（例 BK）。商品ID LT-001 なら最終コード LT-001_BK になります。'],
-  ['手順 5','必須：カテゴリ・ID・商品名・税込価格・表示/非表示。表示は1、非表示は0。'],
-  ['手順 6','バリエーションがある商品は各カラー・サイズの在庫だけで購入可否を判定します。全体在庫は参考合計で購入制限に使いません。SKU在庫0はその選択肢のみ完売。'],
-  ['手順 7','JANは先頭の0が消えないよう、文字列として入力してください。金額は税込の整数円です。'],
-  ['手順 8','組合せ商品は最大3件まで。商品ID1〜3と、それぞれの組合せ割引金額を入力します。'],
-  ['手順 9','同一商品のバリエーション行では組合せ設定も同じ内容で繰り返してください。'],
-  ['手順 10','商品ごとのノベルティ対象は 1 = 対象 / 0または空欄 = 対象外（初期値）です。バリエーション行では同じ値にしてください。'],
-  ['手順 11','Excelは .xlsx、CSVは UTF-8 で保存し、管理画面の一括登録から読み込みます。'],
-  ['画像ZIP','商品画像は別途 ZIP で登録。画像ファイル名は ID.jpg 等、1IDにつき1枚。'],
-  ['安全上の注意','同一IDを登録すると、その商品情報は上書きされます。アップロード前に内容をご確認ください。']
- ];
- const about=[
-  ['項目名','必須/任意','入力方法'],
-  ['カテゴリ','必須','自由入力。カテゴリ名を統一してください。'],
-  ['ID','必須','半角英数字、-、_。商品固有で重複不可。'],
-  ['商品名','必須','商品名を入力。'],
-  ['税込価格','必須','税込金額を整数で入力。'],
-  ['表示/非表示','必須','1 = 表示 / 0 = 非表示'],
-  ['ノベルティ対象(任意)','任意','1 = ノベルティ対象 / 0または空欄 = 対象外（デフォルト）。同じ商品IDの複数行は同じ値を入力。'],
-  ['JANコード(任意)','任意','8〜14桁の数値文字列。'],
-  ['展示会特価(任意)','任意','通常の税込価格より安い整数円。'],
-  ['受注予約(任意)','任意','1 = 予約 / 0または空欄 = 通常'],
-  ['在庫数(任意)','任意','バリエーションなしの商品だけに適用。バリエーション付き商品の総在庫値は参考用で、購入制限に使用しません。'],
-  ['バリエーション在庫数(任意)','任意','各サブコードの個別在庫。空欄は無制限、0は完売。'],
-  ['バリエーション受注予約(任意)','任意','1=そのバリエーションだけ予約 / 0=通常 / 空欄=商品全体の設定に従う。'],
-  ['サブコード(任意)','任意','末尾のみ（例 BK）。商品ID_ を自動で付けます。'],
-  ['バリエーション項目(任意)','任意','例：カラー：ブラック、サイズ：M'],
-  ['バリエーションごとの通常価格(任意)','任意','未入力なら商品の税込価格を使用'],
-  ['バリエーションごとの展示会特価(任意)','任意','未入力なら商品の展示会特価を使用'],
-  ['組合せ商品ID(任意)','任意','組合せ相手となる商品ID'],
-  ['組合せ時割引金額(任意)','任意','1件目の組合せ購入時に減額する整数円'],
-  ['組合せ商品ID2(任意)','任意','2件目の組合せ商品ID（最大3件）'],
-  ['組合せ時割引金額2(任意)','任意','2件目の割引金額（税込円）'],
-  ['組合せ商品ID3(任意)','任意','3件目の組合せ商品ID（最大3件）'],
-  ['組合せ時割引金額3(任意)','任意','3件目の割引金額（税込円）'],
-   ['発売予定月(予約時必須)','予約時必須','受注予約が1の場合、1～12の整数を入力。'],
-   ['発売予定時期(予約時必須)','予約時必須','受注予約が1の場合、上旬・中旬・下旬のいずれか。']
- ];
- const sheets=[['使い方',how],['商品登録',[headers,...data]],['入力例',[headers,...sample]],['項目説明',about]];
- for(const [name,rows] of sheets){
-  const ws=X.utils.aoa_to_sheet(rows);ws['!cols']= name==='商品登録'||name==='入力例'?headers.map((h,i)=>({wch:Math.min(i===10?24:24,Math.max(13,h.length+2))})):[{wch:33},{wch:90}];
-  if(name==='商品登録'||name==='入力例')ws['!autofilter']={ref:'A1:X'+Math.max(2,rows.length)};
-  X.utils.book_append_sheet(wb,ws,name);
- }
- return wb;
-}
-function downloadWorkbook(fileName,rows){try{xlsx().writeFile(workbookFor(rows),fileName,{bookType:'xlsx'});status('Excelファイルを作成しました。');}catch(err){status(err.message,true);}}
-function parseWorkbook(bytes){
- const X=xlsx(),wb=X.read(bytes,{type:'array',cellDates:false});const ws=wb.Sheets['商品登録'];
- if(!ws)throw Error('「商品登録」シートがありません。指定のテンプレートをご使用ください。');
- return parseProductRows(X.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false,raw:false}));
-}
 function parseProductRows(rows){
- if(rows.length<2)throw Error('「商品登録」シートに登録するデータがありません。');
- const normalize=h=>trim(h).replace(/[（(]任意[)）]/g,'').replace(/\s+/g,'').toLowerCase();
+ if(rows.length<2)throw Error('CSVに登録する商品データがありません。');
+ const normalize=h=>trim(h).replace(/[（(](?:任意|必須|予約時必須|バリエーション時必須|組合せ時必須)[)）]/g,'').replace(/\s+/g,'').toLowerCase();
  const indexes=headers.map(h=>(rows[0]||[]).findIndex(v=>normalize(v)===normalize(h)));
- if(indexes.slice(0,15).some(i=>i<0))throw Error('テンプレートの必須列が不足しています。先頭15項目を変更しないでください。');
+ if(indexes.slice(0,15).some(i=>i<0))throw Error('CSVに必要な列が不足しています。24列のCSVテンプレートをご使用ください（旧形式の一部も読込可能）。');
  // Existing 15-column exports used full prefixed subcodes: accept those only for legacy templates.
  const legacyTemplate=indexes.slice(15).every(index=>index<0);
  const entries=new Map();
@@ -539,8 +480,8 @@ function csvFile(fileName,rows){
 async function fileChanged(){
  importData=null;$('import-save').disabled=true;$('import-preview').hidden=true;
  const f=$('import-file').files?.[0];if(!f)return;
- if(!/\.(xlsx|csv)$/i.test(f.name)||f.size>5*1024*1024){status('Excel（.xlsx）またはCSV（.csv）、5MB以内のファイルを選んでください。',true);return;}
- try{const rows=/\.csv$/i.test(f.name)?parseProductRows(parseCsvText(await f.text())):parseWorkbook(await f.arrayBuffer());importData=rows;
+ if(!/\.csv$/i.test(f.name)||f.size>5*1024*1024){status('CSV（.csv）、5MB以内のファイルを選んでください。Excel（.xlsx）は読み込めません。',true);return;}
+ try{const rows=parseProductRows(parseCsvText(await f.text()));importData=rows;
   const box=$('import-preview');box.replaceChildren();const h=document.createElement('strong');
   h.textContent='確認：'+rows.length+'商品（新規 '+rows.filter(p=>!products.has(p.id)).length+'件、上書き '+rows.filter(p=>products.has(p.id)).length+'件）';box.append(h);
   rows.slice(0,12).forEach(p=>{const d=document.createElement('div');d.textContent=p.id+' ／ '+p.name+' ／ '+p.categoryName+' ／ '+yen(p.price)+' ／ バリエーション'+p.variants.length+'件';box.append(d);});
@@ -683,11 +624,8 @@ $('product-image').addEventListener('change',onImageSelected);
 $('images-import').addEventListener('change',imageBulkCheck);$('images-save').addEventListener('click',saveBulkImages);
 $('category-form').addEventListener('submit',addCategory);$('refresh-products').addEventListener('click',async()=>{if(await refresh())status('登録情報を更新しました。');});
 $('import-file').addEventListener('change',fileChanged);$('import-save').addEventListener('click',importProducts);
-$('download-xlsx').addEventListener('click',()=>{
-  downloadWorkbook('MY_EXPO_BAG_商品登録テンプレート.xlsx',[]);
-});
-$('export-xlsx').addEventListener('click',()=>downloadWorkbook('MY_EXPO_BAG_登録商品.xlsx',spreadsheetRows()));
 $('download-csv').addEventListener('click',()=>csvFile('MY_EXPO_BAG_商品登録テンプレート.csv',[headers]));
+$('sample-csv').addEventListener('click',()=>csvFile('MY_EXPO_BAG_商品登録_入力例.csv',[headers,...sample]));
 $('export-csv').addEventListener('click',()=>csvFile('MY_EXPO_BAG_登録商品.csv',[headers,...spreadsheetRows()]));
 const configured=['apiKey','authDomain','projectId','appId'].every(k=>typeof firebase[k]==='string'&&firebase[k].trim());
 if(!configured){$('loading').textContent='Firebaseの接続設定がありません。';document.documentElement.classList.remove('auth-pending');}
